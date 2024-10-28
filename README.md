@@ -6,7 +6,7 @@ This repository contains a Python script that scrapes the top 10 movies and TV s
 
 - Scrapes the top 10 movies and TV shows from streaming services in Portugal on FlixPatrol.
 - Creates or updates Trakt lists for these top movies and TV shows.
-- Runs automatically on a daily schedule using GitHub Actions.
+- Runs automatically on a daily schedule using [GitHub Actions](https://docs.github.com/en/actions) configured for [python env](https://github.com/actions/setup-python/tree/main)
 
 ## Requirements
 
