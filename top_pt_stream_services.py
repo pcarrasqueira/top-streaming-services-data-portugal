@@ -45,77 +45,89 @@ top_kids_shows_section = "TOP 10 Kids TV Shows"
 trakt_netflix_movies_list_data = {
     "name": "Top Portugal Netflix Movies",
     "description": "List that contains the top 10 movies on Netflix Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_netflix_shows_list_data = {
     "name": "Top Portugal Netflix Shows",
     "description": "List that contains the top 10 TV shows on Netflix Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_netflix_kids_movies_list_data = {
     "name": "Top Portugal Netflix Kids Movies",
     "description": "List that contains the top 10 kids movies on Netflix Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_netflix_kids_shows_list_data = {
     "name": "Top Portugal Netflix Kids Shows",
     "description": "List that contains the top 10 kids TV shows on Netflix Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 # HBO
 trakt_hbo_movies_list_data = {
     "name": "Top Portugal HBO Movies",
     "description": "List that contains the top 10 movies on HBO Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_hbo_shows_list_data = {
     "name": "Top Portugal HBO Shows",
     "description": "List that contains the top 10 TV shows on HBO Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 # Disney+
 trakt_disney_movies_list_data = {
     "name": "Top Portugal Disney+ Movies",
     "description": "List that contains the top 10 movies on Disney+ Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_disney_shows_list_data = {
     "name": "Top Portugal Disney+ Shows",
     "description": "List that contains the top 10 TV shows on Disney+ Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 # Apple TV
 trakt_apple_movies_list_data = {
     "name": "Top Portugal Apple TV Movies",
     "description": "List that contains the top 10 movies on Apple TV Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_apple_shows_list_data = {
     "name": "Top Portugal Apple TV Shows",
     "description": "List that contains the top 10 TV shows on Apple TV Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 # Amazon Prime
 trakt_prime_movies_list_data = {
     "name": "Top Portugal Amazon Prime Movies",
     "description": "List that contains the top 10 movies on Amazon Prime Video Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 trakt_prime_shows_list_data = {
     "name": "Top Portugal Amazon Prime Shows",
     "description": "List that contains the top 10 TV shows on Amazon Prime Video Portugal right now, updated daily",
-    "privacy": "public"
+    "privacy": "public",
+    "display_numbers": True
 }
 
 
@@ -340,8 +352,11 @@ def search_title(title_info, type):
             logging.debug("Comparing " + title  + " with: " + result[type]['title'].lower())
             normalized_slug = result[type]['ids']['slug'].replace('-', '')
             normalized_title_tag = title_tag.replace('-', '')
-            if result['type'] == type and result[type]['title'].lower() == title.lower() and normalized_title_tag in normalized_slug:
+            if result['type'] == type and result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)):
                 trakt_ids.append(result[type]['ids']['trakt'])
+        if trakt_ids == []:
+            logging.warning(f"Title not found: {title}, will add first result : {results[0][type]['title']}")
+            trakt_ids.append(results[0][type]['ids']['trakt'])
     else:
         logging.error(f"Error: {response.status_code}")
     return trakt_ids
