@@ -242,7 +242,7 @@ def retry_request(func):
             if response and response.status_code in [200, 201] or response == 304:
                 return response
             logging.warning(f"Attempt {attempt + 1} failed with {response.status_code}. Retrying...")
-            time.sleep(1 ** attempt)
+            time.sleep(2 ** attempt)
         logging.error("All attempts to update the list failed.")
         return None
     return wrapper
