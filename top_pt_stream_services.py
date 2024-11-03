@@ -19,8 +19,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 CLIENT_ID = os.getenv('CLIENT_ID')
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 # Set to True if you want to include kids lists (Trakt limits to 10 lists per user)
-# TO DO - use a different account to create the kids lists
-KIDS_LIST = False 
+# TO DO - use a different account to create the kids lists ?
+KIDS_LIST = False
+
+PRINT_LISTS = False
 
 # Top kids only available on "yesterday" page so we need to get yesterday's date
 yesterday_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -38,6 +40,7 @@ top_movies_section = "TOP 10 Movies"
 top_shows_section = "TOP 10 TV Shows"
 top_kids_movies_section = "TOP 10 Kids Movies"
 top_kids_shows_section = "TOP 10 Kids TV Shows"
+top_overrall_section = "TOP 10 Overall"
 
 # Trakt Lists Data
 
@@ -86,16 +89,9 @@ trakt_hbo_shows_list_data = {
 }
 
 # Disney+
-trakt_disney_movies_list_data = {
-    "name": "Top Portugal Disney+ Movies",
-    "description": "List that contains the top 10 movies on Disney+ Portugal right now, updated daily",
-    "privacy": "public",
-    "display_numbers": True
-}
-
-trakt_disney_shows_list_data = {
-    "name": "Top Portugal Disney+ Shows",
-    "description": "List that contains the top 10 TV shows on Disney+ Portugal right now, updated daily",
+trakt_disney_top_list_data = {
+    "name": "Top Portugal Disney+",
+    "description": "List that contains the top movies and shows on Disney+ Portugal right now, updated daily",
     "privacy": "public",
     "display_numbers": True
 }
@@ -140,8 +136,7 @@ trakt_netflix_kids_shows_list_slug = "top-portugal-netflix-kids-shows"
 trakt_hbo_movies_list_slug = "top-portugal-hbo-movies"
 trakt_hbo_shows_list_slug = "top-portugal-hbo-shows"
 
-trakt_disney_movies_list_slug = "top-portugal-disney-movies"
-trakt_disney_shows_list_slug = "top-portugal-disney-shows"
+trakt_disney_list_slug = "top-portugal-disney"
 
 trakt_apple_movies_list_slug = "top-portugal-apple-tv-movies"
 trakt_apple_shows_list_slug = "top-portugal-apple-tv-shows"
@@ -165,11 +160,11 @@ def get_headers():
 
 # Print the results
 def print_top_list(title, top_list):
-    logging.debug("="*30)
-    logging.debug(f"{title}")
-    logging.debug("="*30)
+    logging.info("="*30)
+    logging.info(f"{title}")
+    logging.info("="*30)
     for rank, item_title, title_tag in top_list:
-        logging.debug(f"{rank}: {item_title} | {title_tag}")
+        logging.info(f"{rank}: {item_title} | {title_tag}")
 
 # Scrape movie or show data based in the section title
 def scrape_top10(url, section_title):
@@ -206,6 +201,7 @@ def scrape_top10(url, section_title):
                 title_tag_href = title_tag['href'].split('/')[-2]  # Extract the title tag from the href
                 rank = rank.rstrip('.')
                 data.append((rank, title, title_tag_href))  # Append the rank, title, and title tag to the data list
+            logging.debug(f"Scraped {section_title} successfully")
         return data
     else:
         print(f"Failed to retrieve page, status code: {response.status_code}")
@@ -324,10 +320,8 @@ def check_lists():
         error_create = create_list( trakt_hbo_movies_list_data)
     if trakt_hbo_shows_list_slug not in lists_slugs:
         error_create = create_list( trakt_hbo_shows_list_data)
-    if trakt_disney_movies_list_slug not in lists_slugs:
-        error_create = create_list( trakt_disney_movies_list_data)
-    if trakt_disney_shows_list_slug not in lists_slugs:
-        error_create = create_list( trakt_disney_shows_list_data)
+    if trakt_disney_list_slug not in lists_slugs:
+        error_create = create_list( trakt_disney_top_list_data)
     if trakt_apple_movies_list_slug not in lists_slugs:
         error_create = create_list( trakt_apple_movies_list_data)
     if trakt_apple_shows_list_slug not in lists_slugs:
@@ -339,21 +333,25 @@ def check_lists():
     logging.debug(f"Lists checked!")
     return error_create
 
-# Search movies or shows by title and title tag
-def search_title(title_info, type):
-    title = title_info[0]
+# Search movies or shows by title and type
+def search_title_by_type(title_info, type):
+    title = title_info[0].replace('&', 'and')
     title_tag = title_info[1]
 
-    response = requests.get(f'https://api.trakt.tv/search/{type}?query={title}',headers=get_headers())
+    response = requests.get(f'https://api.trakt.tv/search/{type}?query={title}&extended=full',headers=get_headers())
     trakt_ids = []
     if response.status_code == 200:
         results = response.json()
+        logging.debug(f"Results: {results} for title: {title}")
         for result in results:
             logging.debug("Comparing " + title  + " with: " + result[type]['title'].lower())
             normalized_slug = result[type]['ids']['slug'].replace('-', '')
             normalized_title_tag = title_tag.replace('-', '')
-            if result['type'] == type and result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)):
+            if result['type'] == type and result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)) or \
+            (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug) or normalized_slug.startswith(normalized_title_tag)):
                 trakt_ids.append(result[type]['ids']['trakt'])
+                logging.debug(f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}")
+                break
         if trakt_ids == []:
             logging.warning(f"Title not found: {title}, will add first result : {results[0][type]['title']}")
             trakt_ids.append(results[0][type]['ids']['trakt'])
@@ -361,15 +359,43 @@ def search_title(title_info, type):
         logging.error(f"Error: {response.status_code}")
     return trakt_ids
                
+# Search movies and shows by title
+def search_title(title_info):
+    title = title_info[0].replace('&', 'and')
+    title_tag = title_info[1]
+
+    response = requests.get(f'https://api.trakt.tv/search/movie,show?query={title}$&extended=full',headers=get_headers())
+    trakt_info = []
+    if response.status_code == 200:
+        results = response.json()
+        for result in results:
+            type = result['type']
+            normalized_slug = result[type]['ids']['slug'].replace('-', '')
+            normalized_title_tag = title_tag.replace('-', '')
+            logging.debug("Comparing " + title  + " with: " + result[type]['title'].lower())
+            if result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)) or \
+            (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug) or normalized_slug.startswith(normalized_title_tag)):
+                trakt_info.append((type, result[type]['ids']['trakt']))
+                logging.debug(f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}")
+                break
+        if trakt_info == []:
+            type_0 = results[0]['type']
+            logging.warning(f"Title not found: {title}, will add first result : {results[0][type_0]['title']}")
+            trakt_info.append((type_0, results[0][type_0]['ids']['trakt']))
+    else:
+        logging.error(f"Error: {response.status_code}")
+    return trakt_info
+  
+
 # Create a Trakt list payload based on the top movies and shows list
-def create_trakt_list_payload(top_list, type):
+def create_type_trakt_list_payload(top_list, type):
     # get titles from top_list
     titles_info = [(title, title_tag) for _, title, title_tag in top_list]
 
     # get trakt ids from titles
     trakt_ids = []
     for title_info in titles_info:
-        trakt_id = search_title(title_info, type)
+        trakt_id = search_title_by_type(title_info, type)
         if trakt_id:
             trakt_ids.append(trakt_id[0])
     
@@ -381,6 +407,26 @@ def create_trakt_list_payload(top_list, type):
     logging.debug(f"Payload: {payload}")
     return payload
     
+# Create a mixed Trakt list payload based on an overral top movies and shows list
+def create_mixed_trakt_list_payload(top_list):
+    # get titles from top_list
+    titles_info = [(title, title_tag) for _, title, title_tag in top_list]
+
+    # get trakt ids from titles
+    trakt_infos = []
+    for title_info in titles_info:
+        trakt_info = search_title(title_info)
+        if trakt_info:
+            trakt_infos.append(trakt_info[0])
+    
+    # create the payload
+    payload = {"movies": [], "shows": []}
+    for type, trakt_id in trakt_infos:
+        payload[f"{type}s"].append({"ids": {"trakt": trakt_id}})
+    
+    logging.debug(f"Payload: {payload}")
+    return payload
+ 
 # Update a trakt list
 @retry_request
 def update_list(list, payload):
@@ -414,8 +460,7 @@ def main():
     top_hbo_shows = scrape_top10(top_hbo_url, top_shows_section)
 
     # Disney+
-    top_disney_movies = scrape_top10(top_disney_url, top_movies_section)
-    top_disney_shows = scrape_top10(top_disney_url, top_shows_section)
+    top_overrall = scrape_top10(top_disney_url, top_overrall_section)
 
     # Apple TV
     top_apple_movies = scrape_top10(top_apple_url, top_movies_section)
@@ -425,50 +470,53 @@ def main():
     top_prime_movies = scrape_top10(top_prime_url, top_movies_section)
     top_prime_shows = scrape_top10(top_prime_url, top_shows_section)
     # Print the results
-    print_top_list("TOP Netflix Movies", top_netflix_movies)
-    print_top_list("TOP Netflix Shows", top_netflix_shows)
-    print_top_list("TOP Netflix Kids Movies", top_netflix_kids_movies)
-    print_top_list("TOP Netflix Kids Shows", top_netflix_kids_shows)
+    if PRINT_LISTS:
+        print_top_list("TOP Netflix Movies", top_netflix_movies)
+        print_top_list("TOP Netflix Shows", top_netflix_shows)
+        print_top_list("TOP Netflix Kids Movies", top_netflix_kids_movies)
+        print_top_list("TOP Netflix Kids Shows", top_netflix_kids_shows)
 
-    print_top_list("TOP HBO Movies", top_hbo_movies)
-    print_top_list("TOP HBO Shows", top_hbo_shows)
+        print_top_list("TOP HBO Movies", top_hbo_movies)
+        print_top_list("TOP HBO Shows", top_hbo_shows)
 
-    print_top_list("TOP Disney+ Movies", top_disney_movies)
-    print_top_list("TOP Disney+ Shows", top_disney_shows)
+        print_top_list("TOP Disney Overall", top_overrall)
 
-    print_top_list("TOP Apple TV Movies", top_apple_movies)
-    print_top_list("TOP Apple TV Shows", top_apple_shows)
+        print_top_list("TOP Apple TV Movies", top_apple_movies)
+        print_top_list("TOP Apple TV Shows", top_apple_shows)
 
-    print_top_list("TOP Amazon Prime Video Movies", top_prime_movies)
-    print_top_list("TOP Amazon Prime Video Shows", top_prime_shows)
+        print_top_list("TOP Amazon Prime Video Movies", top_prime_movies)
+        print_top_list("TOP Amazon Prime Video Shows", top_prime_shows)
 
     # Check the Trakt access token
     token_status = check_token()
     logging.info(f"Trakt access token status: {token_status}")
     if token_status is not True:
-        return
+        return -1
     
     # Check necessary lists
     if check_lists() is True:
         logging.error("Failed to create necessary lists")
-        return
+        return -1
     
     # List of streaming services and corresponding data
     streaming_services = [
         ("netflix", top_netflix_movies, top_netflix_shows, trakt_netflix_movies_list_slug, trakt_netflix_shows_list_slug),
         ("hbo", top_hbo_movies, top_hbo_shows, trakt_hbo_movies_list_slug, trakt_hbo_shows_list_slug),
-        ("disney", top_disney_movies, top_disney_shows, trakt_disney_movies_list_slug, trakt_disney_shows_list_slug),
         ("apple", top_apple_movies, top_apple_shows, trakt_apple_movies_list_slug, trakt_apple_shows_list_slug),
         ("prime", top_prime_movies, top_prime_shows, trakt_prime_movies_list_slug, trakt_prime_shows_list_slug)
     ]
 
     # Create and update lists for each streaming service
     for service, movies, shows, movies_slug, shows_slug in streaming_services:
-        movies_update = create_trakt_list_payload(movies, "movie")
-        shows_update = create_trakt_list_payload(shows, "show")
+        movies_update = create_type_trakt_list_payload(movies, "movie")
+        shows_update = create_type_trakt_list_payload(shows, "show")
         
         update_list(movies_slug, movies_update)
         update_list(shows_slug, shows_update)
+
+    # Handle Disney+ list as Disney stoped showing top movies and shows separately
+    disney_update = create_mixed_trakt_list_payload(top_overrall)
+    update_list(trakt_disney_list_slug, disney_update)
 
     # Handle kids' lists
     if KIDS_LIST:
@@ -477,8 +525,8 @@ def main():
         ]
     
         for service, movies, shows, movies_slug, shows_slug in kids_streaming_services:
-            movies_update = create_trakt_list_payload(movies, "movie")
-            shows_update = create_trakt_list_payload(shows, "show")
+            movies_update = create_type_trakt_list_payload(movies, "movie")
+            shows_update = create_type_trakt_list_payload(shows, "show")
 
             update_list(movies_slug, movies_update)
             update_list(shows_slug, shows_update)
