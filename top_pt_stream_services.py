@@ -20,9 +20,9 @@ CLIENT_ID = os.getenv('CLIENT_ID')
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 # Set to True if you want to include kids lists (Trakt limits to 10 lists per user)
 # TO DO - use a different account to create the kids lists ?
-KIDS_LIST = False
+KIDS_LIST = os.getenv('KIDS_LIST', 'False').lower() in ('true', 'True')
 
-PRINT_LISTS = False
+PRINT_LISTS = os.getenv('PRINT_LISTS', 'False').lower() in ('true', 'True')
 
 # Top kids only available on "yesterday" page so we need to get yesterday's date
 yesterday_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -155,7 +155,8 @@ def get_headers():
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {ACCESS_TOKEN}',
         'trakt-api-version': '2',
-        'trakt-api-key': CLIENT_ID
+        'trakt-api-key': CLIENT_ID,
+        'User-Agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     }
 
 # Print the results
@@ -364,7 +365,7 @@ def search_title(title_info):
     title = title_info[0].replace('&', 'and')
     title_tag = title_info[1]
 
-    response = requests.get(f'https://api.trakt.tv/search/movie,show?query={title}$&extended=full',headers=get_headers())
+    response = requests.get(f'https://api.trakt.tv/search/movie,show?query={title}&extended=full',headers=get_headers())
     trakt_info = []
     if response.status_code == 200:
         results = response.json()
@@ -372,9 +373,9 @@ def search_title(title_info):
             type = result['type']
             normalized_slug = result[type]['ids']['slug'].replace('-', '')
             normalized_title_tag = title_tag.replace('-', '')
-            logging.debug("Comparing " + title  + " with: " + result[type]['title'].lower())
+            logging.debug("Comparing " + title  + " and tag " + normalized_title_tag + " with: " + result[type]['title'].lower() + " and slug " + normalized_slug)
             if result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)) or \
-            (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug) or normalized_slug.startswith(normalized_title_tag)):
+            (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)):
                 trakt_info.append((type, result[type]['ids']['trakt']))
                 logging.debug(f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}")
                 break

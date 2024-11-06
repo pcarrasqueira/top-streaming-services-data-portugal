@@ -27,4 +27,6 @@ jobs:
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          KIDS_LIST: ${{ vars.KIDS_LIST }}
+          PRINT_LISTS: ${{ vars.PRINT_LISTS }}
         run: python top_pt_stream_services.py
