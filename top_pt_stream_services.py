@@ -236,7 +236,7 @@ def retry_request(func):
         attempts = 10
         for attempt in range(attempts):
             response = func(*args, **kwargs)
-            if response and response.status_code in [200, 201] or response == 304:
+            if response and response == 304 or response.status_code in [200, 201]:
                 return response
             logging.warning(f"Attempt {attempt + 1} failed with {response.status_code}. Retrying...")
             time.sleep(2 ** attempt)
@@ -364,11 +364,13 @@ def search_title_by_type(title_info, type):
 def search_title(title_info):
     title = title_info[0].replace('&', 'and')
     title_tag = title_info[1]
+    rank = title_info[2]
 
     response = requests.get(f'https://api.trakt.tv/search/movie,show?query={title}&extended=full',headers=get_headers())
     trakt_info = []
     if response.status_code == 200:
         results = response.json()
+        logging.debug(f"Results: {results} for title: {title}")
         for result in results:
             type = result['type']
             normalized_slug = result[type]['ids']['slug'].replace('-', '')
@@ -376,13 +378,13 @@ def search_title(title_info):
             logging.debug("Comparing " + title  + " and tag " + normalized_title_tag + " with: " + result[type]['title'].lower() + " and slug " + normalized_slug)
             if result[type]['title'].lower() == title.lower() and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)) or \
             (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)):
-                trakt_info.append((type, result[type]['ids']['trakt']))
+                trakt_info.append((type, result[type]['ids']['trakt'], rank))
                 logging.debug(f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}")
                 break
         if trakt_info == []:
             type_0 = results[0]['type']
             logging.warning(f"Title not found: {title}, will add first result : {results[0][type_0]['title']}")
-            trakt_info.append((type_0, results[0][type_0]['ids']['trakt']))
+            trakt_info.append((type_0, results[0][type_0]['ids']['trakt'], rank))
     else:
         logging.error(f"Error: {response.status_code}")
     return trakt_info
@@ -411,12 +413,13 @@ def create_type_trakt_list_payload(top_list, type):
 # Create a mixed Trakt list payload based on an overral top movies and shows list
 def create_mixed_trakt_list_payload(top_list):
     # get titles from top_list
-    titles_info = [(title, title_tag) for _, title, title_tag in top_list]
+    titles_info = [(title, title_tag, rank) for rank, title, title_tag in top_list]
 
     # get trakt ids from titles
     trakt_infos = []
     for title_info in titles_info:
         trakt_info = search_title(title_info)
+        logging.debug(f"Trakt info: {trakt_info}")
         if trakt_info:
             trakt_infos.append(trakt_info[0])
     
@@ -440,7 +443,7 @@ def update_list(list, payload):
             logging.info(f"List updated successfully")
         return response
     else:
-        logging.info("Payload is empty. No items to add on list " + list)
+        logging.warning("Payload is empty. No items to add on list " + list)
         return 304
 
 # ============================
