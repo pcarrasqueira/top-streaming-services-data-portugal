@@ -425,7 +425,7 @@ def create_mixed_trakt_list_payload(top_list):
     
     # create the payload
     payload = {"movies": [], "shows": []}
-    for type, trakt_id in trakt_infos:
+    for type, trakt_id, rank in trakt_infos:
         payload[f"{type}s"].append({"ids": {"trakt": trakt_id}})
     
     logging.debug(f"Payload: {payload}")
