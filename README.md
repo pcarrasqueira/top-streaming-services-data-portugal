@@ -1,4 +1,4 @@
-# FlixPatrol to Trakt List Sync
+# FlixPatrol to Trakt List Sync 🔄
 
 This repository contains a Python script that scrapes the top 10 movies and TV shows from [FlixPatrol](https://flixpatrol.com/top10/netflix/portugal/) and syncs them to your Trakt account by creating and updating Trakt lists.
 
