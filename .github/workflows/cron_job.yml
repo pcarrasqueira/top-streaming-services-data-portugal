@@ -3,7 +3,7 @@ name: Get Top PT Stream Services
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0,12,17 * * *' # At 00:00, 12:00, and 17:00 every day
+    - cron: '0 0,8,12,17 * * *' # At 00:00, 08:00, 12:00, and 17:00 every day
 
 jobs:
   build:
