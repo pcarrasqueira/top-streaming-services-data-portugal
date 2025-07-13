@@ -323,17 +323,6 @@ The script scrapes data from these FlixPatrol URLs:
 }
 ```
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **FlixPatrol**: For providing comprehensive streaming platform data
-- **Trakt.tv**: For their excellent API and platform
-- **GitHub Actions**: For reliable automation infrastructure
-- **Python Community**: For the amazing libraries that make this possible
-
 ## 📞 Support
 
 - **GitHub Issues**: [Create an issue](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/issues)
