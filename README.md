@@ -47,6 +47,8 @@ All lists are public and automatically updated with current rankings:
 
 ## 🚀 Quick Start
 
+**For detailed setup instructions, see the [📚 Setup Guide](SETUP.md)**
+
 ### Prerequisites
 
 - **Python 3.13+** (or 3.x compatible)
@@ -66,7 +68,7 @@ All lists are public and automatically updated with current rankings:
    pip install -r requirements.txt
    ```
 
-3. **Set up Trakt API credentials** (see [Configuration](#-configuration) section)
+3. **Set up Trakt API credentials** (see [Configuration](#-configuration) section or [Setup Guide](SETUP.md))
 
 4. **Run the script**
    ```bash
@@ -242,6 +244,8 @@ PRINT_LISTS=True python top_pt_stream_services.py
 
 ## 🤝 Contributing
 
+**For detailed contributing guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md)**
+
 We welcome contributions! Here's how you can help:
 
 ### Reporting Issues
@@ -280,6 +284,8 @@ We welcome contributions! Here's how you can help:
 - **Testing**: Ensure changes don't break existing functionality
 
 ## 📚 API Reference
+
+**For comprehensive API documentation, see [API.md](API.md)**
 
 ### FlixPatrol Endpoints
 
@@ -322,6 +328,21 @@ The script scrapes data from these FlixPatrol URLs:
     ]
 }
 ```
+
+## 📚 Documentation
+
+This project includes comprehensive documentation to help you get started and contribute effectively:
+
+- **[🚀 Setup Guide](SETUP.md)** - Complete step-by-step installation and configuration instructions
+- **[📡 API Documentation](API.md)** - Detailed information about FlixPatrol integration and Trakt.tv API usage
+- **[🤝 Contributing Guidelines](CONTRIBUTING.md)** - How to contribute to the project, coding standards, and development workflow
+- **[📋 Changelog](CHANGELOG.md)** - Project version history, new features, and changes
+
+For quick reference:
+- **Installation**: See [SETUP.md](SETUP.md) for detailed setup instructions
+- **API Reference**: Check [API.md](API.md) for technical implementation details
+- **Contributing**: Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting pull requests
+- **Updates**: Track changes in [CHANGELOG.md](CHANGELOG.md)
 
 ## 📞 Support
 

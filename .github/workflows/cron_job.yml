@@ -1,6 +1,6 @@
 name: Get Top PT Stream Services
 
-on:
+"on":
   workflow_dispatch:
   schedule:
     - cron: '0 0,8,12,17 * * *'  # 00:00, 08:00, 12:00, 17:00 todos os dias
@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
