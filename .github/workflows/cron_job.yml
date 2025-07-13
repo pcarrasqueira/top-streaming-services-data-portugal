@@ -44,21 +44,24 @@ jobs:
                 "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
                 "grant_type": "refresh_token"
             }')
-      
+
           access_token=$(echo "$response" | jq -r '.access_token')
           refresh_token=$(echo "$response" | jq -r '.refresh_token')
-      
+
           echo "Access Token: $access_token"
           echo "Refresh Token: $refresh_token"
-      
+
+          # Save as output so the next step can access it
+          echo "access_token=$access_token" >> $GITHUB_OUTPUT
+
+          # Update GitHub secrets for future runs
           gh secret set ACCESS_TOKEN -b"$access_token"
           gh secret set REFRESH_TOKEN -b"$refresh_token"
-
 
       - name: Run Python Script
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+          ACCESS_TOKEN: ${{ steps.refresh.outputs.access_token }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
         run: python top_pt_stream_services.py
