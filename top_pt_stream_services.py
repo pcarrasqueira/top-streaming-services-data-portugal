@@ -593,6 +593,10 @@ class StreamingServiceTracker:
         # Initialize list data
         self._init_list_data()
 
+        # Performance optimization: cache for repeated calls
+        self._headers_cache = None
+        self._failed_services = set()  # Track failed services to avoid retrying
+
     def _init_list_data(self) -> None:
         """Initialize Trakt list data configurations."""
         # Netflix lists
@@ -613,6 +617,12 @@ class StreamingServiceTracker:
         # Additional list configurations would go here...
         # For now, keeping it minimal to not duplicate all the list data
 
+    def get_headers_cached(self) -> Dict[str, str]:
+        """Get headers with caching for performance."""
+        if self._headers_cache is None:
+            self._headers_cache = get_headers()
+        return self._headers_cache
+
     def run(self) -> int:
         """Main execution method."""
         try:
@@ -631,6 +641,9 @@ class StreamingServiceTracker:
             # Update all lists
             self._update_all_lists(scraped_data)
 
+            # Report execution summary
+            self._report_execution_summary(scraped_data)
+
             logging.info("Finished updating lists")
             return 0
 
@@ -639,25 +652,40 @@ class StreamingServiceTracker:
             return -1
 
     def _scrape_all_services(self) -> Dict[str, Any]:
-        """Scrape data from all streaming services."""
-        return {
-            # Netflix
-            "netflix_movies": scrape_top10(self.config.urls["netflix"], self.config.sections["movies"]),
-            "netflix_shows": scrape_top10(self.config.urls["netflix"], self.config.sections["shows"]),
-            "netflix_kids_movies": scrape_top10(self.config.urls["netflix_kids"], self.config.sections["kids_movies"]),
-            "netflix_kids_shows": scrape_top10(self.config.urls["netflix_kids"], self.config.sections["kids_shows"]),
-            # HBO
-            "hbo_movies": scrape_top10(self.config.urls["hbo"], self.config.sections["movies"]),
-            "hbo_shows": scrape_top10(self.config.urls["hbo"], self.config.sections["shows"]),
-            # Disney+
-            "disney_overall": scrape_top10(self.config.urls["disney"], self.config.sections["overall"]),
-            # Apple TV
-            "apple_movies": scrape_top10(self.config.urls["apple"], self.config.sections["movies"]),
-            "apple_shows": scrape_top10(self.config.urls["apple"], self.config.sections["shows"]),
-            # Prime Video
-            "prime_movies": scrape_top10(self.config.urls["prime"], self.config.sections["movies"]),
-            "prime_shows": scrape_top10(self.config.urls["prime"], self.config.sections["shows"]),
-        }
+        """Scrape data from all streaming services with improved error handling."""
+        scraped_data = {}
+
+        # Define scraping tasks
+        scraping_tasks = [
+            ("netflix_movies", self.config.urls["netflix"], self.config.sections["movies"]),
+            ("netflix_shows", self.config.urls["netflix"], self.config.sections["shows"]),
+            ("netflix_kids_movies", self.config.urls["netflix_kids"], self.config.sections["kids_movies"]),
+            ("netflix_kids_shows", self.config.urls["netflix_kids"], self.config.sections["kids_shows"]),
+            ("hbo_movies", self.config.urls["hbo"], self.config.sections["movies"]),
+            ("hbo_shows", self.config.urls["hbo"], self.config.sections["shows"]),
+            ("disney_overall", self.config.urls["disney"], self.config.sections["overall"]),
+            ("apple_movies", self.config.urls["apple"], self.config.sections["movies"]),
+            ("apple_shows", self.config.urls["apple"], self.config.sections["shows"]),
+            ("prime_movies", self.config.urls["prime"], self.config.sections["movies"]),
+            ("prime_shows", self.config.urls["prime"], self.config.sections["shows"]),
+        ]
+
+        # Execute scraping tasks with error handling
+        for task_name, url, section in scraping_tasks:
+            try:
+                result = scrape_top10(url, section)
+                scraped_data[task_name] = result or []  # Ensure we always have a list
+                if result is None:
+                    logging.warning(f"Failed to scrape {task_name}")
+                    self._failed_services.add(task_name)
+                else:
+                    logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
+            except Exception as e:
+                logging.error(f"Error scraping {task_name}: {e}")
+                scraped_data[task_name] = []
+                self._failed_services.add(task_name)
+
+        return scraped_data
 
     def _print_scraped_data(self, data: Dict[str, Any]) -> None:
         """Print all scraped data for debugging."""
@@ -746,6 +774,23 @@ class StreamingServiceTracker:
 
                 update_list(movies_slug, movies_update)
                 update_list(shows_slug, shows_update)
+
+    def _report_execution_summary(self, data: Dict[str, Any]) -> None:
+        """Report summary of execution including successes and failures."""
+        total_services = len(data)
+        successful_services = sum(1 for v in data.values() if v and len(v) > 0)
+        failed_services = len(self._failed_services)
+
+        logging.info("Execution Summary:")
+        logging.info(f"  Total services: {total_services}")
+        logging.info(f"  Successful: {successful_services}")
+        logging.info(f"  Failed: {failed_services}")
+
+        if self._failed_services:
+            logging.warning(f"  Failed services: {', '.join(self._failed_services)}")
+
+        success_rate = (successful_services / total_services) * 100 if total_services > 0 else 0
+        logging.info(f"  Success rate: {success_rate:.1f}%")
 
 
 # ============================
