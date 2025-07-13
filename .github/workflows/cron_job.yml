@@ -1,6 +1,6 @@
 name: Get Top PT Stream Services
 
-on:
+"on":
   workflow_dispatch:
   schedule:
     - cron: '0 0,8,12,17 * * *'  # 00:00, 08:00, 12:00, 17:00 todos os dias
