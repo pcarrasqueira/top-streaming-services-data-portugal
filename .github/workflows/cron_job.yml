@@ -48,8 +48,8 @@ jobs:
           access_token=$(echo "$response" | jq -r '.access_token')
           refresh_token=$(echo "$response" | jq -r '.refresh_token')
 
-          echo "Access Token: $access_token"
-          echo "Refresh Token: $refresh_token"
+          echo "::add-mask::$access_token"
+          echo "::add-mask::$refresh_token"
 
           # Save as output so the next step can access it
           echo "access_token=$access_token" >> $GITHUB_OUTPUT
