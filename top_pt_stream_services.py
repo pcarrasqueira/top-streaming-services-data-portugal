@@ -14,41 +14,77 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# ============================
-# CONSTANTS
-# ============================
-REQUEST_TIMEOUT = 30  # seconds
-MAX_RETRIES = 10
-BACKOFF_FACTOR = 2
 
 # ============================
-# GLOBAL VARIABLES
+# CONFIGURATION
 # ============================
-CLIENT_ID = os.getenv("CLIENT_ID")
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-# Set to True if you want to include kids lists (Trakt limits to 10 lists per user)
-# TO DO - use a different account to create the kids lists ?
-KIDS_LIST = os.getenv("KIDS_LIST", "False").lower() in ("true", "True")
+class Config:
+    """Configuration management for the streaming services tracker."""
 
-PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
+    def __init__(self):
+        # Load environment variables
+        self.CLIENT_ID = os.getenv("CLIENT_ID")
+        self.ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+        self.KIDS_LIST = os.getenv("KIDS_LIST", "False").lower() in ("true", "True")
+        self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
+
+        # Request configuration
+        self.REQUEST_TIMEOUT = 30  # seconds
+        self.MAX_RETRIES = 10
+        self.BACKOFF_FACTOR = 2
+
+        # Dates
+        self.yesterday_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # URLs
+        self.urls = {
+            "netflix": "https://flixpatrol.com/top10/netflix/portugal/",
+            "netflix_kids": f"https://flixpatrol.com/top10/netflix/portugal/{self.yesterday_date}/",
+            "hbo": "https://flixpatrol.com/top10/hbo/portugal/",
+            "disney": "https://flixpatrol.com/top10/disney/portugal/",
+            "apple": "https://flixpatrol.com/top10/apple-tv/portugal/",
+            "prime": "https://flixpatrol.com/top10/amazon-prime/portugal/",
+        }
+
+        # Section names
+        self.sections = {
+            "movies": "TOP 10 Movies",
+            "shows": "TOP 10 TV Shows",
+            "kids_movies": "TOP 10 Kids Movies",
+            "kids_shows": "TOP 10 Kids TV Shows",
+            "overall": "TOP 10 Overall",
+        }
+
+
+# ============================
+# GLOBAL VARIABLES (for backward compatibility)
+# ============================
+config = Config()
+CLIENT_ID = config.CLIENT_ID
+ACCESS_TOKEN = config.ACCESS_TOKEN
+KIDS_LIST = config.KIDS_LIST
+PRINT_LISTS = config.PRINT_LISTS
+REQUEST_TIMEOUT = config.REQUEST_TIMEOUT
+MAX_RETRIES = config.MAX_RETRIES
+BACKOFF_FACTOR = config.BACKOFF_FACTOR
 
 # Top kids only available on "yesterday" page so we need to get yesterday's date
-yesterday_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+yesterday_date = config.yesterday_date
 
 # Flixpatrol URLs
-top_netflix_url = "https://flixpatrol.com/top10/netflix/portugal/"
-top_netflix_kids_url = f"https://flixpatrol.com/top10/netflix/portugal/{yesterday_date}/"
-top_hbo_url = "https://flixpatrol.com/top10/hbo/portugal/"
-top_disney_url = "https://flixpatrol.com/top10/disney/portugal/"
-top_apple_url = "https://flixpatrol.com/top10/apple-tv/portugal/"
-top_prime_url = "https://flixpatrol.com/top10/amazon-prime/portugal/"
+top_netflix_url = config.urls["netflix"]
+top_netflix_kids_url = config.urls["netflix_kids"]
+top_hbo_url = config.urls["hbo"]
+top_disney_url = config.urls["disney"]
+top_apple_url = config.urls["apple"]
+top_prime_url = config.urls["prime"]
 
 # Sections Names
-top_movies_section = "TOP 10 Movies"
-top_shows_section = "TOP 10 TV Shows"
-top_kids_movies_section = "TOP 10 Kids Movies"
-top_kids_shows_section = "TOP 10 Kids TV Shows"
-top_overrall_section = "TOP 10 Overall"
+top_movies_section = config.sections["movies"]
+top_shows_section = config.sections["shows"]
+top_kids_movies_section = config.sections["kids_movies"]
+top_kids_shows_section = config.sections["kids_shows"]
+top_overrall_section = config.sections["overall"]
 
 # Trakt Lists Data
 
@@ -160,8 +196,10 @@ trakt_prime_shows_list_slug = "top-portugal-amazon-prime-shows"
 # Get headers
 def get_headers() -> Dict[str, str]:
     """Returns headers with authorization for requests."""
-    user_agent = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+    user_agent = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    )
     return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -185,8 +223,10 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
     data = []
 
     # Define headers to mimic a real browser
-    user_agent = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+    user_agent = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    )
     headers = {
         "Content-Type": "application/json",
         "User-Agent": user_agent,
@@ -539,110 +579,184 @@ def update_list(list_slug: str, payload: Dict[str, List[Dict[str, Any]]]) -> Uni
 
 
 # ============================
-# MAIN METHOD
+# STREAMING SERVICE TRACKER CLASS
 # ============================
 
 
-def main() -> int:
-    # Extract Movies and TV Shows
+class StreamingServiceTracker:
+    """Main class for tracking streaming service data and updating Trakt lists."""
 
-    # Netflix
-    top_netflix_movies = scrape_top10(top_netflix_url, top_movies_section)
-    top_netflix_shows = scrape_top10(top_netflix_url, top_shows_section)
-    top_netflix_kids_movies = scrape_top10(top_netflix_kids_url, top_kids_movies_section)
-    top_netflix_kids_shows = scrape_top10(top_netflix_kids_url, top_kids_shows_section)
+    def __init__(self, config_instance: Config = None):
+        """Initialize the tracker with configuration."""
+        self.config = config_instance or config
 
-    # HBO
-    top_hbo_movies = scrape_top10(top_hbo_url, top_movies_section)
-    top_hbo_shows = scrape_top10(top_hbo_url, top_shows_section)
+        # Initialize list data
+        self._init_list_data()
 
-    # Disney+
-    top_overrall = scrape_top10(top_disney_url, top_overrall_section)
+    def _init_list_data(self) -> None:
+        """Initialize Trakt list data configurations."""
+        # Netflix lists
+        self.netflix_movies_list_data = {
+            "name": "Top Portugal Netflix Movies",
+            "description": "List that contains the top 10 movies on Netflix Portugal right now, updated daily",
+            "privacy": "public",
+            "display_numbers": True,
+        }
 
-    # Apple TV
-    top_apple_movies = scrape_top10(top_apple_url, top_movies_section)
-    top_apple_shows = scrape_top10(top_apple_url, top_shows_section)
+        self.netflix_shows_list_data = {
+            "name": "Top Portugal Netflix Shows",
+            "description": "List that contains the top 10 TV shows on Netflix Portugal right now, updated daily",
+            "privacy": "public",
+            "display_numbers": True,
+        }
 
-    # Prime Video
-    top_prime_movies = scrape_top10(top_prime_url, top_movies_section)
-    top_prime_shows = scrape_top10(top_prime_url, top_shows_section)
+        # Additional list configurations would go here...
+        # For now, keeping it minimal to not duplicate all the list data
 
-    # Print the results
-    if PRINT_LISTS:
-        print_top_list("TOP Netflix Movies", top_netflix_movies)
-        print_top_list("TOP Netflix Shows", top_netflix_shows)
-        print_top_list("TOP Netflix Kids Movies", top_netflix_kids_movies)
-        print_top_list("TOP Netflix Kids Shows", top_netflix_kids_shows)
+    def run(self) -> int:
+        """Main execution method."""
+        try:
+            logging.info("Starting streaming service data update...")
 
-        print_top_list("TOP HBO Movies", top_hbo_movies)
-        print_top_list("TOP HBO Shows", top_hbo_shows)
+            # Extract Movies and TV Shows
+            scraped_data = self._scrape_all_services()
 
-        print_top_list("TOP Disney Overall", top_overrall)
+            if self.config.PRINT_LISTS:
+                self._print_scraped_data(scraped_data)
 
-        print_top_list("TOP Apple TV Movies", top_apple_movies)
-        print_top_list("TOP Apple TV Shows", top_apple_shows)
+            # Check Trakt token and lists
+            if not self._validate_trakt_setup():
+                return -1
 
-        print_top_list("TOP Amazon Prime Video Movies", top_prime_movies)
-        print_top_list("TOP Amazon Prime Video Shows", top_prime_shows)
+            # Update all lists
+            self._update_all_lists(scraped_data)
 
-    # Check the Trakt access token
-    token_status = check_token()
-    logging.info(f"Trakt access token status: {token_status}")
-    if token_status is not True:
-        return -1
+            logging.info("Finished updating lists")
+            return 0
 
-    # Check necessary lists
-    if check_lists() is True:
-        logging.error("Failed to create necessary lists")
-        return -1
+        except Exception as e:
+            logging.error(f"Error in main execution: {e}")
+            return -1
 
-    # List of streaming services and corresponding data
-    streaming_services = [
-        (
-            "netflix",
-            top_netflix_movies,
-            top_netflix_shows,
-            trakt_netflix_movies_list_slug,
-            trakt_netflix_shows_list_slug,
-        ),
-        ("hbo", top_hbo_movies, top_hbo_shows, trakt_hbo_movies_list_slug, trakt_hbo_shows_list_slug),
-        ("apple", top_apple_movies, top_apple_shows, trakt_apple_movies_list_slug, trakt_apple_shows_list_slug),
-        ("prime", top_prime_movies, top_prime_shows, trakt_prime_movies_list_slug, trakt_prime_shows_list_slug),
-    ]
+    def _scrape_all_services(self) -> Dict[str, Any]:
+        """Scrape data from all streaming services."""
+        return {
+            # Netflix
+            "netflix_movies": scrape_top10(self.config.urls["netflix"], self.config.sections["movies"]),
+            "netflix_shows": scrape_top10(self.config.urls["netflix"], self.config.sections["shows"]),
+            "netflix_kids_movies": scrape_top10(self.config.urls["netflix_kids"], self.config.sections["kids_movies"]),
+            "netflix_kids_shows": scrape_top10(self.config.urls["netflix_kids"], self.config.sections["kids_shows"]),
+            # HBO
+            "hbo_movies": scrape_top10(self.config.urls["hbo"], self.config.sections["movies"]),
+            "hbo_shows": scrape_top10(self.config.urls["hbo"], self.config.sections["shows"]),
+            # Disney+
+            "disney_overall": scrape_top10(self.config.urls["disney"], self.config.sections["overall"]),
+            # Apple TV
+            "apple_movies": scrape_top10(self.config.urls["apple"], self.config.sections["movies"]),
+            "apple_shows": scrape_top10(self.config.urls["apple"], self.config.sections["shows"]),
+            # Prime Video
+            "prime_movies": scrape_top10(self.config.urls["prime"], self.config.sections["movies"]),
+            "prime_shows": scrape_top10(self.config.urls["prime"], self.config.sections["shows"]),
+        }
 
-    # Create and update lists for each streaming service
-    for service, movies, shows, movies_slug, shows_slug in streaming_services:
-        movies_update = create_type_trakt_list_payload(movies, "movie")
-        shows_update = create_type_trakt_list_payload(shows, "show")
+    def _print_scraped_data(self, data: Dict[str, Any]) -> None:
+        """Print all scraped data for debugging."""
+        print_top_list("TOP Netflix Movies", data["netflix_movies"])
+        print_top_list("TOP Netflix Shows", data["netflix_shows"])
+        print_top_list("TOP Netflix Kids Movies", data["netflix_kids_movies"])
+        print_top_list("TOP Netflix Kids Shows", data["netflix_kids_shows"])
+        print_top_list("TOP HBO Movies", data["hbo_movies"])
+        print_top_list("TOP HBO Shows", data["hbo_shows"])
+        print_top_list("TOP Disney Overall", data["disney_overall"])
+        print_top_list("TOP Apple TV Movies", data["apple_movies"])
+        print_top_list("TOP Apple TV Shows", data["apple_shows"])
+        print_top_list("TOP Amazon Prime Video Movies", data["prime_movies"])
+        print_top_list("TOP Amazon Prime Video Shows", data["prime_shows"])
 
-        update_list(movies_slug, movies_update)
-        update_list(shows_slug, shows_update)
+    def _validate_trakt_setup(self) -> bool:
+        """Validate Trakt token and create necessary lists."""
+        # Check the Trakt access token
+        token_status = check_token()
+        logging.info(f"Trakt access token status: {token_status}")
+        if token_status is not True:
+            return False
 
-    # Handle Disney+ list as Disney stoped showing top movies and shows separately
-    disney_update = create_mixed_trakt_list_payload(top_overrall)
-    update_list(trakt_disney_list_slug, disney_update)
+        # Check necessary lists
+        if check_lists() is True:
+            logging.error("Failed to create necessary lists")
+            return False
 
-    # Handle kids' lists
-    if KIDS_LIST:
-        kids_streaming_services = [
+        return True
+
+    def _update_all_lists(self, data: Dict[str, Any]) -> None:
+        """Update all Trakt lists with scraped data."""
+        # List of streaming services and corresponding data
+        streaming_services = [
             (
                 "netflix",
-                top_netflix_kids_movies,
-                top_netflix_kids_shows,
-                trakt_netflix_kids_movies_list_slug,
-                trakt_netflix_kids_shows_list_slug,
-            )
+                data["netflix_movies"],
+                data["netflix_shows"],
+                trakt_netflix_movies_list_slug,
+                trakt_netflix_shows_list_slug,
+            ),
+            ("hbo", data["hbo_movies"], data["hbo_shows"], trakt_hbo_movies_list_slug, trakt_hbo_shows_list_slug),
+            (
+                "apple",
+                data["apple_movies"],
+                data["apple_shows"],
+                trakt_apple_movies_list_slug,
+                trakt_apple_shows_list_slug,
+            ),
+            (
+                "prime",
+                data["prime_movies"],
+                data["prime_shows"],
+                trakt_prime_movies_list_slug,
+                trakt_prime_shows_list_slug,
+            ),
         ]
 
-        for service, movies, shows, movies_slug, shows_slug in kids_streaming_services:
+        # Create and update lists for each streaming service
+        for service, movies, shows, movies_slug, shows_slug in streaming_services:
             movies_update = create_type_trakt_list_payload(movies, "movie")
             shows_update = create_type_trakt_list_payload(shows, "show")
 
             update_list(movies_slug, movies_update)
             update_list(shows_slug, shows_update)
 
-    logging.info("Finished updating lists")
-    return 0
+        # Handle Disney+ list as Disney stopped showing top movies and shows separately
+        disney_update = create_mixed_trakt_list_payload(data["disney_overall"])
+        update_list(trakt_disney_list_slug, disney_update)
+
+        # Handle kids' lists
+        if self.config.KIDS_LIST:
+            kids_streaming_services = [
+                (
+                    "netflix",
+                    data["netflix_kids_movies"],
+                    data["netflix_kids_shows"],
+                    trakt_netflix_kids_movies_list_slug,
+                    trakt_netflix_kids_shows_list_slug,
+                )
+            ]
+
+            for service, movies, shows, movies_slug, shows_slug in kids_streaming_services:
+                movies_update = create_type_trakt_list_payload(movies, "movie")
+                shows_update = create_type_trakt_list_payload(shows, "show")
+
+                update_list(movies_slug, movies_update)
+                update_list(shows_slug, shows_update)
+
+
+# ============================
+# MAIN METHOD (backward compatibility)
+# ============================
+
+
+def main() -> int:
+    """Main function for backward compatibility. Uses the StreamingServiceTracker class."""
+    tracker = StreamingServiceTracker()
+    return tracker.run()
 
 
 if __name__ == "__main__":
