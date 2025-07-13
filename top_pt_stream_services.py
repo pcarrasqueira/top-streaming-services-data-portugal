@@ -1,11 +1,11 @@
 import logging
-import time
-import requests
 import os
-from typing import List, Tuple, Dict, Any, Optional, Union
-
-from bs4 import BeautifulSoup
+import time
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
