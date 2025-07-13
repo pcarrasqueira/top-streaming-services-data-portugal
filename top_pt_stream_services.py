@@ -538,4 +538,4 @@ def main():
     logging.info("Finished updating lists")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
