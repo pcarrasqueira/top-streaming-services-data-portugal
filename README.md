@@ -2,7 +2,6 @@
 
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/pcarrasqueira/top-streaming-services-data-portugal/cron_job.yml?branch=main)](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/actions)
 [![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/github/license/pcarrasqueira/top-streaming-services-data-portugal)](LICENSE)
 
 A comprehensive Python automation tool that tracks the most popular content across major streaming platforms in Portugal. This project scrapes real-time data from [FlixPatrol](https://flixpatrol.com/) and automatically syncs curated top 10 lists to [Trakt.tv](https://trakt.tv/), providing an always up-to-date view of trending movies and TV shows.
 
