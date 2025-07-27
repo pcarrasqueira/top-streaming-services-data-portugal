@@ -1,0 +1,21 @@
+{
+  "name": "top-streaming-services-portugal-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for Top Streaming Services Data Portugal",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production"
+  },
+  "keywords": ["cloudflare", "worker", "streaming", "portugal", "trakt"],
+  "author": "pcarrasqueira",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  }
+}

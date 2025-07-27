@@ -49,6 +49,14 @@ All lists are public and automatically updated with current rankings:
 
 **For detailed setup instructions, see the [📚 Setup Guide](SETUP.md)**
 
+### Deployment Options
+
+This project supports multiple deployment methods:
+
+- **GitHub Actions** (Default): Automated execution via GitHub's infrastructure
+- **Cloudflare Workers** (New): Deploy as a serverless worker with HTTP API and scheduled execution
+  - See [🌐 Cloudflare Deployment Guide](CLOUDFLARE.md) for setup instructions
+
 ### Prerequisites
 
 - **Python 3.13+** (or 3.x compatible)
@@ -350,6 +358,7 @@ The script scrapes data from these FlixPatrol URLs:
 This project includes comprehensive documentation to help you get started and contribute effectively:
 
 - **[🚀 Setup Guide](SETUP.md)** - Complete step-by-step installation and configuration instructions
+- **[🌐 Cloudflare Deployment](CLOUDFLARE.md)** - Deploy as a Cloudflare Worker with HTTP API and scheduled execution
 - **[📡 API Documentation](API.md)** - Detailed information about FlixPatrol integration and Trakt.tv API usage
 - **[🤝 Contributing Guidelines](CONTRIBUTING.md)** - How to contribute to the project, coding standards, and development workflow
 - **[👨‍💻 Developer Guide](DEVELOPER.md)** - Architecture overview, development setup, and coding guidelines
@@ -357,6 +366,7 @@ This project includes comprehensive documentation to help you get started and co
 
 For quick reference:
 - **Installation**: See [SETUP.md](SETUP.md) for detailed setup instructions
+- **Cloudflare Workers**: Check [CLOUDFLARE.md](CLOUDFLARE.md) for serverless deployment
 - **API Reference**: Check [API.md](API.md) for technical implementation details
 - **Contributing**: Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting pull requests
 - **Development**: See [DEVELOPER.md](DEVELOPER.md) for architecture and coding guidelines
