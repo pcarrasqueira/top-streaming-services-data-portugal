@@ -95,6 +95,11 @@ async function executeStreamingServicesScript(env) {
   const startTime = Date.now();
   
   try {
+    // Check if GitHub token is available
+    if (!env.GITHUB_TOKEN) {
+      throw new Error('GITHUB_TOKEN environment variable not set');
+    }
+    
     // For now, we'll call the GitHub Actions workflow
     // In a future version, we could port the Python logic to JavaScript
     const response = await fetch('https://api.github.com/repos/pcarrasqueira/top-streaming-services-data-portugal/actions/workflows/cron_job.yml/dispatches', {
@@ -103,7 +108,7 @@ async function executeStreamingServicesScript(env) {
         'Authorization': `token ${env.GITHUB_TOKEN}`,
         'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json',
-        'User-Agent': 'Cloudflare-Worker'
+        'User-Agent': 'Cloudflare-Worker/1.0'
       },
       body: JSON.stringify({
         ref: 'main'
@@ -113,6 +118,7 @@ async function executeStreamingServicesScript(env) {
     const executionTime = Date.now() - startTime;
 
     if (response.ok) {
+      console.log('GitHub Actions workflow triggered successfully');
       return {
         success: true,
         message: 'GitHub Actions workflow triggered successfully',
@@ -121,12 +127,18 @@ async function executeStreamingServicesScript(env) {
         environment: env.ENVIRONMENT || 'unknown'
       };
     } else {
-      const errorText = await response.text();
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (textError) {
+        errorText = 'Could not read response body';
+      }
       throw new Error(`GitHub API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
   } catch (error) {
     const executionTime = Date.now() - startTime;
+    console.error('Execution failed:', error.message);
     
     return {
       success: false,
