@@ -4,6 +4,7 @@
   "description": "Cloudflare Worker for Top Streaming Services Data Portugal",
   "main": "src/index.js",
   "scripts": {
+    "build": "echo 'No build step required for this Cloudflare Worker'",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:staging": "wrangler deploy --env staging",
