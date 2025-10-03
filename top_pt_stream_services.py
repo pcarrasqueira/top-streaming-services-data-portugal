@@ -242,27 +242,84 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
             # Parse the HTML content
             soup = BeautifulSoup(response.content, "html.parser")
 
-            # Locate the correct section using 'h3' and the title
-            section_header = soup.find("h3", string=section_title)
+            # Locate the correct section - try multiple heading tags for robustness
+            section_header = None
+            for heading_tag in ["h2", "h3", "h4"]:
+                # Try exact match first
+                section_header = soup.find(heading_tag, string=section_title)
+                if section_header:
+                    logging.debug(f"Found section '{section_title}' with {heading_tag} tag")
+                    break
+                # Try case-insensitive match
+                section_header = soup.find(
+                    heading_tag, string=lambda s: s and s.strip().lower() == section_title.lower()
+                )
+                if section_header:
+                    logging.debug(f"Found section '{section_title}' with {heading_tag} tag (case-insensitive)")
+                    break
+
             # Check if the section was found
             if section_header:
                 # Find the next div after the section header
                 section_div = section_header.find_next("div", class_="card")
+                if not section_div:
+                    logging.warning(f"Could not find card div after section header for {section_title}")
+                    return data
+
                 tbody = section_div.find("tbody")  # Locate the table body within the div
+                if not tbody:
+                    logging.warning(f"Could not find tbody in card div for {section_title}")
+                    return data
+
                 rows = tbody.find_all("tr")
+                logging.debug(f"Found {len(rows)} rows for {section_title}")
 
                 for row in rows:
-                    rank = row.find(
-                        "td", class_="table-td w-12 font-semibold text-right text-gray-500 table-hover:text-gray-400"
-                    ).get_text(
-                        strip=True
-                    )  # Get the rank
-                    title_tag = row.find("a")  # Get the anchor tag containing the title
-                    title = title_tag.get_text(strip=True)  # Get the movie/show title
-                    title_tag_href = title_tag["href"].split("/")[-2]  # Extract the title tag from the href
-                    rank = rank.rstrip(".")
-                    data.append((rank, title, title_tag_href))  # Append the rank, title, and title tag to the data list
-                logging.debug(f"Scraped {section_title} successfully")
+                    try:
+                        # Try to find rank with specific class, fall back to first td if not found
+                        rank_td = row.find(
+                            "td",
+                            class_="table-td w-12 font-semibold text-right text-gray-500 table-hover:text-gray-400",
+                        )
+                        if not rank_td:
+                            # Fallback: try to find first td element
+                            rank_td = row.find("td")
+
+                        if not rank_td:
+                            logging.warning(f"Could not find rank td in row for {section_title}")
+                            continue
+
+                        rank = rank_td.get_text(strip=True)
+
+                        # Get the anchor tag containing the title
+                        title_tag = row.find("a")
+                        if not title_tag:
+                            logging.warning(f"Could not find title link in row for {section_title}")
+                            continue
+
+                        title = title_tag.get_text(strip=True)  # Get the movie/show title
+                        title_tag_href = title_tag.get("href", "")
+                        if not title_tag_href:
+                            logging.warning(f"Title link has no href for {section_title}: {title}")
+                            continue
+
+                        # Extract the title tag from the href
+                        title_tag_slug = title_tag_href.split("/")[-2] if len(title_tag_href.split("/")) >= 2 else ""
+                        if not title_tag_slug:
+                            logging.warning(f"Could not extract slug from href: {title_tag_href}")
+                            continue
+
+                        rank = rank.rstrip(".")
+                        data.append(
+                            (rank, title, title_tag_slug)
+                        )  # Append the rank, title, and title tag to the data list
+                    except Exception as row_error:
+                        logging.warning(f"Error processing row in {section_title}: {row_error}")
+                        continue
+
+                logging.info(f"Scraped {len(data)} items from {section_title}")
+            else:
+                logging.warning(f"Could not find section header for '{section_title}' in {url}")
             return data
         else:
             logging.error(f"Failed to retrieve page {url}, status code: {response.status_code}")
