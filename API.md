@@ -52,6 +52,12 @@ The scraper looks for specific section titles:
 - `"TOP 10 Kids TV Shows"`
 - `"TOP 10 Overall"` (Disney+ only)
 
+**Robustness Features:**
+- Tries multiple heading tags (`h2`, `h3`, `h4`) to find section headers
+- Supports case-insensitive matching for section titles
+- Falls back to first `<td>` if specific classes not found
+- Comprehensive error handling and logging for each parsing step
+
 #### Data Structure
 ```python
 # Scraped data format
@@ -64,18 +70,30 @@ The scraper looks for specific section titles:
 ```
 
 #### HTML Structure
-The scraper expects this HTML structure:
+The scraper supports various HTML structures:
 ```html
+<!-- Example 1: With h3 heading -->
 <h3>TOP 10 Movies</h3>
 <div class="card">
     <tbody>
         <tr>
             <td class="table-td w-12 font-semibold text-right text-gray-500 table-hover:text-gray-400">1</td>
             <td><a href="/title/movie-slug">Movie Title</a></td>
-            <!-- other columns -->
         </tr>
-        <!-- more rows -->
     </tbody>
+</div>
+
+<!-- Example 2: With h2 heading and table wrapper -->
+<h2>TOP 10 Movies</h2>
+<div class="card">
+    <table>
+        <tbody>
+            <tr>
+                <td class="rank-cell">1</td>
+                <td><a href="/title/movie-slug">Movie Title</a></td>
+            </tr>
+        </tbody>
+    </table>
 </div>
 ```
 
