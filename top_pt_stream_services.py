@@ -47,11 +47,15 @@ class Config:
         }
 
         # Section names
+        # NOTE: FlixPatrol has mislabeled their sections!
+        # Their "TOP 10 Movies" section contains TV shows
+        # Their "TOP 10 TV Shows" section contains movies
+        # We swap the mappings to get the correct content
         self.sections = {
-            "movies": "TOP 10 Movies",
-            "shows": "TOP 10 TV Shows",
-            "kids_movies": "TOP 10 Kids Movies",
-            "kids_shows": "TOP 10 Kids TV Shows",
+            "movies": "TOP 10 TV Shows",  # FlixPatrol's "TV Shows" section actually has movies
+            "shows": "TOP 10 Movies",  # FlixPatrol's "Movies" section actually has TV shows
+            "kids_movies": "TOP 10 Kids TV Shows",  # FlixPatrol's "Kids TV Shows" section has movies
+            "kids_shows": "TOP 10 Kids Movies",  # FlixPatrol's "Kids Movies" section has TV shows
             "overall": "TOP 10 Overall",
         }
 
