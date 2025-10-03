@@ -242,20 +242,24 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
             # Parse the HTML content
             soup = BeautifulSoup(response.content, "html.parser")
 
-            # Locate the correct section - try multiple heading tags for robustness
+            # Locate the correct section - search in document order, not heading tag order
+            # This ensures we find the first occurrence in the actual HTML structure
             section_header = None
-            for heading_tag in ["h2", "h3", "h4"]:
+
+            # Find all heading tags in document order
+            all_headings = soup.find_all(["h2", "h3", "h4"])
+
+            for heading in all_headings:
+                heading_text = heading.get_text(strip=True)
                 # Try exact match first
-                section_header = soup.find(heading_tag, string=section_title)
-                if section_header:
-                    logging.debug(f"Found section '{section_title}' with {heading_tag} tag")
+                if heading_text == section_title:
+                    section_header = heading
+                    logging.debug(f"Found section '{section_title}' with {heading.name} tag (exact match)")
                     break
                 # Try case-insensitive match
-                section_header = soup.find(
-                    heading_tag, string=lambda s: s and s.strip().lower() == section_title.lower()
-                )
-                if section_header:
-                    logging.debug(f"Found section '{section_title}' with {heading_tag} tag (case-insensitive)")
+                elif heading_text.lower() == section_title.lower():
+                    section_header = heading
+                    logging.debug(f"Found section '{section_title}' with {heading.name} tag (case-insensitive)")
                     break
 
             # Check if the section was found
