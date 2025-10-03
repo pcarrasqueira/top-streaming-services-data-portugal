@@ -46,8 +46,7 @@ class Config:
             "prime": "https://flixpatrol.com/top10/amazon-prime/portugal/",
         }
 
-        # Section names
-        # Standard mapping (used by HBO, Apple, Prime, Disney)
+        # Section names (used by all services: Netflix, HBO, Apple, Prime, Disney)
         self.sections = {
             "movies": "TOP 10 Movies",
             "shows": "TOP 10 TV Shows",
@@ -56,16 +55,7 @@ class Config:
             "overall": "TOP 10 Overall",
         }
 
-        # Netflix-specific mapping (FlixPatrol has mislabeled Netflix sections only!)
-        # Netflix's "TOP 10 Movies" section contains TV shows
-        # Netflix's "TOP 10 TV Shows" section contains movies
-        self.netflix_sections = {
-            "movies": "TOP 10 TV Shows",  # FlixPatrol's Netflix "TV Shows" section actually has movies
-            "shows": "TOP 10 Movies",  # FlixPatrol's Netflix "Movies" section actually has TV shows
-            "kids_movies": "TOP 10 Kids TV Shows",  # FlixPatrol's Netflix "Kids TV Shows" section has movies
-            "kids_shows": "TOP 10 Kids Movies",  # FlixPatrol's Netflix "Kids Movies" section has TV shows
-            "overall": "TOP 10 Overall",
-        }
+
 
 
 # ============================
@@ -742,12 +732,11 @@ class StreamingServiceTracker:
         scraped_data = {}
 
         # Define scraping tasks
-        # NOTE: Netflix uses netflix_sections because FlixPatrol mislabeled Netflix sections
         scraping_tasks = [
-            ("netflix_movies", self.config.urls["netflix"], self.config.netflix_sections["movies"]),
-            ("netflix_shows", self.config.urls["netflix"], self.config.netflix_sections["shows"]),
-            ("netflix_kids_movies", self.config.urls["netflix_kids"], self.config.netflix_sections["kids_movies"]),
-            ("netflix_kids_shows", self.config.urls["netflix_kids"], self.config.netflix_sections["kids_shows"]),
+            ("netflix_movies", self.config.urls["netflix"], self.config.sections["movies"]),
+            ("netflix_shows", self.config.urls["netflix"], self.config.sections["shows"]),
+            ("netflix_kids_movies", self.config.urls["netflix_kids"], self.config.sections["kids_movies"]),
+            ("netflix_kids_shows", self.config.urls["netflix_kids"], self.config.sections["kids_shows"]),
             ("hbo_movies", self.config.urls["hbo"], self.config.sections["movies"]),
             ("hbo_shows", self.config.urls["hbo"], self.config.sections["shows"]),
             ("disney_overall", self.config.urls["disney"], self.config.sections["overall"]),
