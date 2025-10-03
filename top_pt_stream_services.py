@@ -276,11 +276,10 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
 
             # Check if the section was found
             if section_header:
-                # Check if the heading is inside a card div (HBO, Apple, Prime structure)
-                # or if it's before a card div (Netflix structure)
+                # All services use the same HTML structure: heading is inside a card div
                 section_div = None
 
-                # Try to find parent card first (heading inside card)
+                # Find parent card div (heading inside card)
                 parent = section_header.parent
                 while parent and section_div is None:
                     if parent.name == "div" and parent.get("class") and "card" in parent.get("class"):
@@ -292,14 +291,8 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
                     if parent and parent.name == "body":
                         break
 
-                # If not found as parent, try find_next (heading before card)
                 if not section_div:
-                    section_div = section_header.find_next("div", class_="card")
-                    if section_div:
-                        logging.debug(f"Found card div after heading for {section_title}")
-
-                if not section_div:
-                    logging.warning(f"Could not find card div after section header for {section_title}")
+                    logging.warning(f"Could not find card div containing section header for {section_title}")
                     return data
 
                 tbody = section_div.find("tbody")  # Locate the table body within the div
