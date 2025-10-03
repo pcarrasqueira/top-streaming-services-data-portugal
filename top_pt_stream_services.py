@@ -56,8 +56,6 @@ class Config:
         }
 
 
-
-
 # ============================
 # GLOBAL VARIABLES (for backward compatibility)
 # ============================
