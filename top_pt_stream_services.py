@@ -532,9 +532,11 @@ def search_title_by_type(title_info: Tuple[str, str], type: str) -> List[int]:
                     f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
                 )
                 break
-        if trakt_ids == []:
+        if trakt_ids == [] and results:
             logging.warning(f"Title not found: {title}, will add first result : {results[0][type]['title']}")
             trakt_ids.append(results[0][type]["ids"]["trakt"])
+        elif trakt_ids == [] and not results:
+            logging.warning(f"No results found for title: {title}")
     else:
         logging.error(f"Error: {response.status_code}")
     return trakt_ids
@@ -579,10 +581,12 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
                     f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
                 )
                 break
-        if trakt_info == []:
+        if trakt_info == [] and results:
             type_0 = results[0]["type"]
             logging.warning(f"Title not found: {title}, will add first result : {results[0][type_0]['title']}")
             trakt_info.append((type_0, results[0][type_0]["ids"]["trakt"], rank))
+        elif trakt_info == [] and not results:
+            logging.warning(f"No results found for title: {title}")
     else:
         logging.error(f"Error: {response.status_code}")
     return trakt_info
