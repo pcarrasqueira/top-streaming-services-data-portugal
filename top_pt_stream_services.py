@@ -40,7 +40,7 @@ class Config:
         self.urls = {
             "netflix": "https://flixpatrol.com/top10/netflix/portugal/",
             "netflix_kids": f"https://flixpatrol.com/top10/netflix/portugal/{self.yesterday_date}/",
-            "hbo": "https://flixpatrol.com/top10/hbo/portugal/",
+            "hbo": "https://flixpatrol.com/top10/hbo-max/portugal/",
             "disney": "https://flixpatrol.com/top10/disney/portugal/",
             "apple": "https://flixpatrol.com/top10/apple-tv/portugal/",
             "prime": "https://flixpatrol.com/top10/amazon-prime/portugal/",
