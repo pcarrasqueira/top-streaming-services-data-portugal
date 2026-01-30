@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote
-from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
@@ -29,7 +28,6 @@ class Config:
         self.ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
         self.KIDS_LIST = os.getenv("KIDS_LIST", "False").lower() in ("true", "True")
         self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
-        self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
         self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
         # Request configuration
