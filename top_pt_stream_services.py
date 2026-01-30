@@ -421,10 +421,7 @@ def search_tmdb(title: str, year: str) -> Tuple[str, str]:
     if not config.TMDB_API_KEY:
         return "Unknown", "Unknown"
 
-    search_url = (
-        "https://api.themoviedb.org/3/search/multi"
-        f"?api_key={config.TMDB_API_KEY}&query={quote(title)}"
-    )
+    search_url = f"https://api.themoviedb.org/3/search/multi?api_key={config.TMDB_API_KEY}&query={quote(title)}"
 
     try:
         response = requests.get(search_url, timeout=REQUEST_TIMEOUT)
