@@ -3,7 +3,6 @@ import os
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
