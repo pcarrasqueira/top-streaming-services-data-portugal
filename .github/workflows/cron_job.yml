@@ -41,6 +41,7 @@ jobs:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           response=$(curl -s --location 'https://api.trakt.tv/oauth/token' \
             --header 'Content-Type: application/json' \
