@@ -13,7 +13,7 @@ This document is the single source of truth for autonomous and human agents work
 - **Create env**: `python -m venv .venv && source .venv/bin/activate`
 - **Core deps**: `pip install -r requirements.txt`
 - **Dev deps**: `pip install -r requirements-dev.txt`
-- **Env vars**: copy `.env.example` → `.env`; never commit `.env`. Required keys: `CLIENT_ID`, `CLIENT_SECRET`, `ACCESS_TOKEN`, `REFRESH_TOKEN`; optional flags `KIDS_LIST`, `PRINT_LISTS`.
+- **Env vars**: copy `.env.example` → `.env`; never commit `.env`. Required keys: `CLIENT_ID`, `CLIENT_SECRET`, `ACCESS_TOKEN`, `REFRESH_TOKEN`; optional flags `KIDS_LIST`, `PRINT_LISTS`; optional integration key `TMDB_API_KEY` (used to enrich data with TMDB & IMDb IDs).
 - **Pre-commit**: `pre-commit install` after installing dev deps to mirror CI checks locally.
 
 ## 3. BUILD & EXECUTION COMMANDS
@@ -81,7 +81,7 @@ Always run the full lint stack before opening a PR. CI will block on any failure
 - Guard required env vars early (`_validate_trakt_setup`) and raise descriptive errors.
 
 **Data & Payloads**
-- Normalize scraped tuples `(rank, title, slug)` before building Trakt payloads.
+- Normalize scraped tuples to 7-tuples `(rank, title, slug, year, starring, tmdb_id, imdb_id)` before building Trakt payloads; downstream helpers may ignore the extra fields when only `(rank, title, slug)` are needed but must accept the full shape.
 - Use helper factories (`create_type_trakt_list_payload`) to keep payload shape consistent.
 - Validate API responses (status codes, JSON keys) before acting.
 
