@@ -1,11 +1,13 @@
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import quote
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -27,6 +29,7 @@ class Config:
         self.ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
         self.KIDS_LIST = os.getenv("KIDS_LIST", "False").lower() in ("true", "True")
         self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
+        self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
         # Request configuration
         self.REQUEST_TIMEOUT = 30  # seconds
@@ -56,10 +59,40 @@ class Config:
         }
 
 
+class TMDBRateLimiter:
+    """Rate limiter for TMDB API to respect the 40 requests per 10 seconds limit."""
+
+    def __init__(self, max_requests: int = 40, time_window: int = 10):
+        self.max_requests = max_requests
+        self.time_window = time_window
+        self.requests: List[float] = []
+
+    def wait_if_needed(self) -> None:
+        """Wait if necessary to respect rate limits."""
+        now = time.time()
+        # Remove requests older than the time window
+        self.requests = [req_time for req_time in self.requests if now - req_time < self.time_window]
+
+        if len(self.requests) >= self.max_requests:
+            # Calculate how long to wait
+            oldest_request = self.requests[0]
+            wait_time = self.time_window - (now - oldest_request)
+            if wait_time > 0:
+                logging.debug("Rate limit reached, waiting %.2f seconds", wait_time)
+                time.sleep(wait_time)
+                # Clean up old requests after waiting
+                now = time.time()
+                self.requests = [req_time for req_time in self.requests if now - req_time < self.time_window]
+
+        # Record this request
+        self.requests.append(time.time())
+
+
 # ============================
 # GLOBAL VARIABLES (for backward compatibility)
 # ============================
 config = Config()
+tmdb_rate_limiter = TMDBRateLimiter()
 CLIENT_ID = config.CLIENT_ID
 ACCESS_TOKEN = config.ACCESS_TOKEN
 KIDS_LIST = config.KIDS_LIST
@@ -210,17 +243,30 @@ def get_headers() -> Dict[str, str]:
 
 
 # Print the results
-def print_top_list(title: str, top_list: List[Tuple[str, str, str]]) -> None:
+def print_top_list(title: str, top_list: List[Tuple[str, str, str, str, str, str, str]]) -> None:
+    if not top_list:
+        logging.info("No data to display for %s", title)
+        return
+
     logging.info("=" * 30)
-    logging.info(f"{title}")
+    logging.info("%s", title)
     logging.info("=" * 30)
-    for rank, item_title, title_tag in top_list:
-        logging.info(f"{rank}: {item_title} | {title_tag}")
+    for rank, item_title, title_tag, year, starring, tmdb_id, imdb_id in top_list:
+        logging.info(
+            "%s: %s | %s | %s | %s | %s | %s",
+            rank,
+            item_title,
+            title_tag,
+            year,
+            starring,
+            tmdb_id,
+            imdb_id,
+        )
 
 
 # Scrape movie or show data based in the section title
-def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, str]]]:
-    data = []
+def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, str, str, str, str, str]]]:
+    data: List[Tuple[str, str, str, str, str, str, str]] = []
 
     # Define headers to mimic a real browser
     user_agent = (
@@ -293,13 +339,11 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
 
                 for row in rows:
                     try:
-                        # Try to find rank with specific class, fall back to first td if not found
                         rank_td = row.find(
                             "td",
                             class_="table-td w-12 font-semibold text-right text-gray-500 table-hover:text-gray-400",
                         )
                         if not rank_td:
-                            # Fallback: try to find first td element
                             rank_td = row.find("td")
 
                         if not rank_td:
@@ -308,28 +352,27 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
 
                         rank = rank_td.get_text(strip=True)
 
-                        # Get the anchor tag containing the title
                         title_tag = row.find("a")
                         if not title_tag:
                             logging.warning(f"Could not find title link in row for {section_title}")
                             continue
 
-                        title = title_tag.get_text(strip=True)  # Get the movie/show title
+                        title = title_tag.get_text(strip=True)
                         title_tag_href = title_tag.get("href", "")
                         if not title_tag_href:
                             logging.warning(f"Title link has no href for {section_title}: {title}")
                             continue
 
-                        # Extract the title tag from the href
                         title_tag_slug = title_tag_href.split("/")[-2] if len(title_tag_href.split("/")) >= 2 else ""
                         if not title_tag_slug:
                             logging.warning(f"Could not extract slug from href: {title_tag_href}")
                             continue
 
                         rank = rank.rstrip(".")
-                        data.append(
-                            (rank, title, title_tag_slug)
-                        )  # Append the rank, title, and title tag to the data list
+
+                        year, starring, tmdb_id, imdb_id = scrape_details(title_tag_slug, title)
+
+                        data.append((rank, title, title_tag_slug, year, starring, tmdb_id, imdb_id))
                     except Exception as row_error:
                         logging.warning(f"Error processing row in {section_title}: {row_error}")
                         continue
@@ -347,6 +390,132 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
     except Exception as e:
         logging.error(f"Error scraping {url}: {e}")
         return None
+
+
+# Scrape the year, starring actor, TMDB id, and IMDb id for a title
+def scrape_details(title_tag_slug: str, title: str) -> Tuple[str, str, str, str]:
+    detail_url = f"https://flixpatrol.com/title/{title_tag_slug}"
+    user_agent = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": user_agent,
+        "Cookie": "_nss=1",
+    }
+
+    year = "Unknown"
+    starring = "Unknown"
+    tmdb_id = "Unknown"
+    imdb_id = "Unknown"
+
+    try:
+        response = requests.get(detail_url, headers=headers, timeout=REQUEST_TIMEOUT)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            premiere_div = soup.find("div", attrs={"title": "Premiere"})
+            if premiere_div:
+                span = premiere_div.find("span", class_="text-gray-600")
+                span_text = span.get_text(strip=True) if span else ""
+                year_text = ""
+                if span and span.next_sibling:
+                    sibling = span.next_sibling
+                    if isinstance(sibling, NavigableString):
+                        year_text = str(sibling).strip()
+                    elif isinstance(sibling, Tag):
+                        year_text = sibling.get_text(strip=True)
+                if span_text and year_text:
+                    year = f"{span_text} {year_text}"
+                elif year_text:
+                    year = year_text
+                elif span_text:
+                    # Only use span_text if it looks like a year (19xx or 20xx)
+                    year = span_text if re.search(r"\b(19|20)\d{2}\b", span_text) else year
+
+            starring_dt = soup.find("dt", string=lambda text: text and text.strip() in ["Starring", "Cast"])
+            if starring_dt:
+                grow_dt = starring_dt.find_next("dt", class_="grow")
+                if grow_dt:
+                    first_a = grow_dt.find("a")
+                    if first_a:
+                        starring = first_a.get_text(strip=True)
+
+            tmdb_id, media_type = search_tmdb(title, year)
+            if tmdb_id != "Unknown":
+                imdb_id = get_tmdb_imdb_id(tmdb_id, media_type)
+            else:
+                logging.warning("TMDB ID not found for %s, skipping IMDb lookup", title)
+        else:
+            logging.warning("Failed to retrieve detail page %s (status %s)", detail_url, response.status_code)
+    except requests.exceptions.RequestException as error:
+        logging.warning("Request failed for detail page %s: %s", title_tag_slug, error)
+    except Exception as error:
+        logging.warning("Error scraping details for %s: %s", title_tag_slug, error)
+
+    return year, starring, tmdb_id, imdb_id
+
+
+def search_tmdb(title: str, year: str) -> Tuple[str, str]:
+    if not config.TMDB_API_KEY:
+        return "Unknown", "Unknown"
+
+    search_url = f"https://api.themoviedb.org/3/search/multi?api_key={config.TMDB_API_KEY}&query={quote(title)}"
+
+    try:
+        tmdb_rate_limiter.wait_if_needed()
+        response = requests.get(search_url, timeout=REQUEST_TIMEOUT)
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            # Extract 4-digit year using regex (19xx or 20xx)
+            year_match = re.search(r"\b(19|20)\d{2}\b", year) if year else None
+            year_fragment = year_match.group(0) if year_match else ""
+            for result in results:
+                release_date = result.get("release_date") or result.get("first_air_date")
+                if year_fragment and release_date and release_date.startswith(year_fragment):
+                    return str(result.get("id")), result.get("media_type", "movie")
+            if len(results) == 1:
+                only_result = results[0]
+                return str(only_result.get("id")), only_result.get("media_type", "movie")
+        else:
+            logging.warning("TMDB search failed (status %s) for: %s", response.status_code, title)
+    except requests.exceptions.RequestException as error:
+        logging.warning("TMDB search request failed for %s: %s", title, error)
+    except (KeyError, ValueError) as error:
+        logging.warning("Error parsing TMDB response for %s: %s", title, error)
+    except Exception as error:
+        logging.warning("Unexpected error searching TMDB for %s: %s", title, error)
+
+    return "Unknown", "Unknown"
+
+
+def get_tmdb_imdb_id(tmdb_id: str, media_type: str) -> str:
+    if not config.TMDB_API_KEY or tmdb_id == "Unknown":
+        return "Unknown"
+
+    endpoint = "movie" if media_type == "movie" else "tv"
+    details_url = (
+        f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={config.TMDB_API_KEY}"
+        "&append_to_response=external_ids"
+    )
+
+    try:
+        tmdb_rate_limiter.wait_if_needed()
+        response = requests.get(details_url, timeout=REQUEST_TIMEOUT)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("external_ids", {}).get("imdb_id", "Unknown")
+        logging.warning("TMDB details fetch failed (status %s) for ID: %s", response.status_code, tmdb_id)
+    except requests.exceptions.RequestException as error:
+        logging.warning("TMDB details request failed for %s: %s", tmdb_id, error)
+    except (KeyError, ValueError) as error:
+        logging.warning("Error parsing TMDB details for %s: %s", tmdb_id, error)
+    except Exception as error:
+        logging.warning("Unexpected error getting TMDB details for %s: %s", tmdb_id, error)
+
+    return "Unknown"
 
 
 # parse items from trakt list
@@ -496,7 +665,7 @@ def check_lists() -> bool:
     if trakt_prime_shows_list_slug not in lists_slugs:
         error_create = create_list(trakt_prime_shows_list_data)
     logging.debug("Lists checked!")
-    return error_create
+    return bool(error_create)
 
 
 # Search movies or shows by title and type
@@ -593,9 +762,11 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
 
 
 # Create a Trakt list payload based on the top movies and shows list
-def create_type_trakt_list_payload(top_list: List[Tuple[str, str, str]], type: str) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list
-    titles_info = [(title, title_tag) for _, title, title_tag in top_list]
+def create_type_trakt_list_payload(
+    top_list: List[Tuple[str, str, str, str, str, str, str]], type: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
+    titles_info = [(title, title_tag) for _, title, title_tag, *_ in top_list]
 
     # get trakt ids from titles
     trakt_ids = []
@@ -614,9 +785,11 @@ def create_type_trakt_list_payload(top_list: List[Tuple[str, str, str]], type: s
 
 
 # Create a mixed Trakt list payload based on an overral top movies and shows list
-def create_mixed_trakt_list_payload(top_list: List[Tuple[str, str, str]]) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list
-    titles_info = [(title, title_tag, rank) for rank, title, title_tag in top_list]
+def create_mixed_trakt_list_payload(
+    top_list: List[Tuple[str, str, str, str, str, str, str]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
+    titles_info = [(title, title_tag, rank) for rank, title, title_tag, *_ in top_list]
 
     # get trakt ids from titles
     trakt_infos = []
@@ -664,7 +837,7 @@ def update_list(list_slug: str, payload: Dict[str, List[Dict[str, Any]]]) -> Uni
 class StreamingServiceTracker:
     """Main class for tracking streaming service data and updating Trakt lists."""
 
-    def __init__(self, config_instance: Config = None):
+    def __init__(self, config_instance: Optional[Config] = None):
         """Initialize the tracker with configuration."""
         self.config = config_instance or config
 
