@@ -72,4 +72,5 @@ jobs:
           ACCESS_TOKEN: ${{ steps.refresh.outputs.access_token }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: python top_pt_stream_services.py
