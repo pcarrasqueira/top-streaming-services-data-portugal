@@ -1,11 +1,13 @@
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import quote
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -57,10 +59,40 @@ class Config:
         }
 
 
+class TMDBRateLimiter:
+    """Rate limiter for TMDB API to respect the 40 requests per 10 seconds limit."""
+
+    def __init__(self, max_requests: int = 40, time_window: int = 10):
+        self.max_requests = max_requests
+        self.time_window = time_window
+        self.requests: List[float] = []
+
+    def wait_if_needed(self) -> None:
+        """Wait if necessary to respect rate limits."""
+        now = time.time()
+        # Remove requests older than the time window
+        self.requests = [req_time for req_time in self.requests if now - req_time < self.time_window]
+
+        if len(self.requests) >= self.max_requests:
+            # Calculate how long to wait
+            oldest_request = self.requests[0]
+            wait_time = self.time_window - (now - oldest_request)
+            if wait_time > 0:
+                logging.debug("Rate limit reached, waiting %.2f seconds", wait_time)
+                time.sleep(wait_time)
+                # Clean up old requests after waiting
+                now = time.time()
+                self.requests = [req_time for req_time in self.requests if now - req_time < self.time_window]
+
+        # Record this request
+        self.requests.append(time.time())
+
+
 # ============================
 # GLOBAL VARIABLES (for backward compatibility)
 # ============================
 config = Config()
+tmdb_rate_limiter = TMDBRateLimiter()
 CLIENT_ID = config.CLIENT_ID
 ACCESS_TOKEN = config.ACCESS_TOKEN
 KIDS_LIST = config.KIDS_LIST
@@ -201,13 +233,11 @@ def get_headers() -> Dict[str, str]:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     )
-    client_id = CLIENT_ID or ""
-    access_token = ACCESS_TOKEN or ""
     return {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
         "trakt-api-version": "2",
-        "trakt-api-key": client_id,
+        "trakt-api-key": CLIENT_ID,
         "User-Agent": user_agent,
     }
 
@@ -389,11 +419,20 @@ def scrape_details(title_tag_slug: str, title: str) -> Tuple[str, str, str, str]
             if premiere_div:
                 span = premiere_div.find("span", class_="text-gray-600")
                 span_text = span.get_text(strip=True) if span else ""
-                year_text = span.next_sibling.strip() if span and span.next_sibling else ""
+                year_text = ""
+                if span and span.next_sibling:
+                    sibling = span.next_sibling
+                    if isinstance(sibling, NavigableString):
+                        year_text = str(sibling).strip()
+                    elif isinstance(sibling, Tag):
+                        year_text = sibling.get_text(strip=True)
                 if span_text and year_text:
-                    year = f"{span_text}{year_text}"
-                else:
-                    year = year_text or span_text or year
+                    year = f"{span_text} {year_text}"
+                elif year_text:
+                    year = year_text
+                elif span_text:
+                    # Only use span_text if it looks like a year (19xx or 20xx)
+                    year = span_text if re.search(r"\b(19|20)\d{2}\b", span_text) else year
 
             starring_dt = soup.find("dt", string=lambda text: text and text.strip() in ["Starring", "Cast"])
             if starring_dt:
@@ -410,7 +449,9 @@ def scrape_details(title_tag_slug: str, title: str) -> Tuple[str, str, str, str]
                 logging.warning("TMDB ID not found for %s, skipping IMDb lookup", title)
         else:
             logging.warning("Failed to retrieve detail page %s (status %s)", detail_url, response.status_code)
-    except Exception as error:  # noqa: BLE001
+    except requests.exceptions.RequestException as error:
+        logging.warning("Request failed for detail page %s: %s", title_tag_slug, error)
+    except Exception as error:
         logging.warning("Error scraping details for %s: %s", title_tag_slug, error)
 
     return year, starring, tmdb_id, imdb_id
@@ -423,11 +464,14 @@ def search_tmdb(title: str, year: str) -> Tuple[str, str]:
     search_url = f"https://api.themoviedb.org/3/search/multi?api_key={config.TMDB_API_KEY}&query={quote(title)}"
 
     try:
+        tmdb_rate_limiter.wait_if_needed()
         response = requests.get(search_url, timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             data = response.json()
             results = data.get("results", [])
-            year_fragment = year.split("/")[-1] if year else ""
+            # Extract 4-digit year using regex (19xx or 20xx)
+            year_match = re.search(r"\b(19|20)\d{2}\b", year) if year else None
+            year_fragment = year_match.group(0) if year_match else ""
             for result in results:
                 release_date = result.get("release_date") or result.get("first_air_date")
                 if year_fragment and release_date and release_date.startswith(year_fragment):
@@ -436,9 +480,13 @@ def search_tmdb(title: str, year: str) -> Tuple[str, str]:
                 only_result = results[0]
                 return str(only_result.get("id")), only_result.get("media_type", "movie")
         else:
-            logging.warning("TMDB search failed (%s) for %s", response.status_code, title)
-    except Exception as error:  # noqa: BLE001
-        logging.warning("Error searching TMDB for %s: %s", title, error)
+            logging.warning("TMDB search failed (status %s) for: %s", response.status_code, title)
+    except requests.exceptions.RequestException as error:
+        logging.warning("TMDB search request failed for %s: %s", title, error)
+    except (KeyError, ValueError) as error:
+        logging.warning("Error parsing TMDB response for %s: %s", title, error)
+    except Exception as error:
+        logging.warning("Unexpected error searching TMDB for %s: %s", title, error)
 
     return "Unknown", "Unknown"
 
@@ -454,13 +502,18 @@ def get_tmdb_imdb_id(tmdb_id: str, media_type: str) -> str:
     )
 
     try:
+        tmdb_rate_limiter.wait_if_needed()
         response = requests.get(details_url, timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             data = response.json()
             return data.get("external_ids", {}).get("imdb_id", "Unknown")
-        logging.warning("TMDB details fetch failed (%s) for %s", response.status_code, tmdb_id)
-    except Exception as error:  # noqa: BLE001
-        logging.warning("Error getting TMDB details for %s: %s", tmdb_id, error)
+        logging.warning("TMDB details fetch failed (status %s) for ID: %s", response.status_code, tmdb_id)
+    except requests.exceptions.RequestException as error:
+        logging.warning("TMDB details request failed for %s: %s", tmdb_id, error)
+    except (KeyError, ValueError) as error:
+        logging.warning("Error parsing TMDB details for %s: %s", tmdb_id, error)
+    except Exception as error:
+        logging.warning("Unexpected error getting TMDB details for %s: %s", tmdb_id, error)
 
     return "Unknown"
 
@@ -709,9 +762,11 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
 
 
 # Create a Trakt list payload based on the top movies and shows list
-def create_type_trakt_list_payload(top_list: List[Tuple[str, str, str]], type: str) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list
-    titles_info = [(title, title_tag) for _, title, title_tag in top_list]
+def create_type_trakt_list_payload(
+    top_list: List[Tuple[str, str, str, str, str, str, str]], type: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
+    titles_info = [(title, title_tag) for _, title, title_tag, *_ in top_list]
 
     # get trakt ids from titles
     trakt_ids = []
@@ -730,9 +785,11 @@ def create_type_trakt_list_payload(top_list: List[Tuple[str, str, str]], type: s
 
 
 # Create a mixed Trakt list payload based on an overral top movies and shows list
-def create_mixed_trakt_list_payload(top_list: List[Tuple[str, str, str]]) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list
-    titles_info = [(title, title_tag, rank) for rank, title, title_tag in top_list]
+def create_mixed_trakt_list_payload(
+    top_list: List[Tuple[str, str, str, str, str, str, str]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
+    titles_info = [(title, title_tag, rank) for rank, title, title_tag, *_ in top_list]
 
     # get trakt ids from titles
     trakt_infos = []
