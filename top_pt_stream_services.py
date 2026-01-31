@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -422,17 +422,17 @@ def scrape_details(title_tag_slug: str, title: str) -> Tuple[str, str, str, str]
                 year_text = ""
                 if span and span.next_sibling:
                     sibling = span.next_sibling
-                    if hasattr(sibling, "strip"):
-                        year_text = sibling.strip()
-                    elif hasattr(sibling, "get_text"):
+                    if isinstance(sibling, NavigableString):
+                        year_text = str(sibling).strip()
+                    elif isinstance(sibling, Tag):
                         year_text = sibling.get_text(strip=True)
                 if span_text and year_text:
                     year = f"{span_text} {year_text}"
                 elif year_text:
                     year = year_text
                 elif span_text:
-                    # Only use span_text if it looks like a year (contains digits)
-                    year = span_text if re.search(r"\d{4}", span_text) else year
+                    # Only use span_text if it looks like a year (19xx or 20xx)
+                    year = span_text if re.search(r"\b(19|20)\d{2}\b", span_text) else year
 
             starring_dt = soup.find("dt", string=lambda text: text and text.strip() in ["Starring", "Cast"])
             if starring_dt:
@@ -469,8 +469,8 @@ def search_tmdb(title: str, year: str) -> Tuple[str, str]:
         if response.status_code == 200:
             data = response.json()
             results = data.get("results", [])
-            # Extract 4-digit year using regex
-            year_match = re.search(r"\d{4}", year) if year else None
+            # Extract 4-digit year using regex (19xx or 20xx)
+            year_match = re.search(r"\b(19|20)\d{2}\b", year) if year else None
             year_fragment = year_match.group(0) if year_match else ""
             for result in results:
                 release_date = result.get("release_date") or result.get("first_air_date")
