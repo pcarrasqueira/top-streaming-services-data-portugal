@@ -518,6 +518,78 @@ def get_tmdb_imdb_id(tmdb_id: str, media_type: str) -> str:
     return "Unknown"
 
 
+def search_trakt_by_tmdb_id(tmdb_id: str, media_type: str) -> Optional[int]:
+    """
+    Search Trakt for a movie/show by TMDB ID.
+
+    Args:
+        tmdb_id: The TMDB ID to search for
+        media_type: Either "movie" or "show"
+
+    Returns:
+        Trakt ID if found, None otherwise
+    """
+    if tmdb_id == "Unknown":
+        return None
+
+    response = requests.get(
+        f"https://api.trakt.tv/search/tmdb/{tmdb_id}?type={media_type}",
+        headers=get_headers(),
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if response.status_code == 200:
+        results = response.json()
+        # Find the first result matching the requested type
+        for result in results:
+            if result["type"] == media_type:
+                trakt_id = result[media_type]["ids"]["trakt"]
+                logging.debug(f"Found Trakt ID {trakt_id} via TMDB ID {tmdb_id}")
+                return trakt_id
+        # No matching type found
+        logging.debug(f"No {media_type} results for TMDB ID {tmdb_id}")
+    else:
+        logging.warning(f"Trakt TMDB search failed (status {response.status_code}) for ID: {tmdb_id}")
+
+    return None
+
+
+def search_trakt_by_tmdb_id_any_type(tmdb_id: str) -> Optional[Tuple[str, int]]:
+    """
+    Search Trakt by TMDB ID without type filter (for mixed lists).
+
+    Args:
+        tmdb_id: The TMDB ID to search for
+
+    Returns:
+        Tuple of (media_type, trakt_id) if found, None otherwise
+    """
+    if tmdb_id == "Unknown":
+        return None
+
+    response = requests.get(
+        f"https://api.trakt.tv/search/tmdb/{tmdb_id}",
+        headers=get_headers(),
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if response.status_code == 200:
+        results = response.json()
+        # Filter to only movie/show results (TMDB IDs can also match people)
+        for result in results:
+            media_type = result["type"]
+            if media_type in ("movie", "show"):
+                trakt_id = result[media_type]["ids"]["trakt"]
+                logging.debug(f"Found Trakt ID {trakt_id} ({media_type}) via TMDB ID {tmdb_id}")
+                return media_type, trakt_id
+        # No movie/show found
+        logging.debug(f"No movie/show results for TMDB ID {tmdb_id} (may be a person)")
+    else:
+        logging.warning(f"Trakt TMDB search failed (status {response.status_code}) for ID: {tmdb_id}")
+
+    return None
+
+
 # parse items from trakt list
 def parse_items(items: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     movies = []
@@ -669,12 +741,12 @@ def check_lists() -> bool:
 
 
 # Search movies or shows by title and type
-def search_title_by_type(title_info: Tuple[str, str], type: str) -> List[int]:
+def search_title_by_type(title_info: Tuple[str, str], media_type: str) -> List[int]:
     title = title_info[0].replace("&", "and")
     title_tag = title_info[1]
 
     response = requests.get(
-        f"https://api.trakt.tv/search/{type}?query={title}&extended=full",
+        f"https://api.trakt.tv/search/{media_type}?query={title}&extended=full",
         headers=get_headers(),
         timeout=REQUEST_TIMEOUT,
     )
@@ -683,12 +755,12 @@ def search_title_by_type(title_info: Tuple[str, str], type: str) -> List[int]:
         results = response.json()
         logging.debug(f"Results: {results} for title: {title}")
         for result in results:
-            logging.debug("Comparing " + title + " with: " + result[type]["title"].lower())
-            normalized_slug = result[type]["ids"]["slug"].replace("-", "")
+            logging.debug("Comparing " + title + " with: " + result[media_type]["title"].lower())
+            normalized_slug = result[media_type]["ids"]["slug"].replace("-", "")
             normalized_title_tag = title_tag.replace("-", "")
             if (
-                result["type"] == type
-                and result[type]["title"].lower() == title.lower()
+                result["type"] == media_type
+                and result[media_type]["title"].lower() == title.lower()
                 and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
                 or (
                     normalized_title_tag in normalized_slug
@@ -696,14 +768,14 @@ def search_title_by_type(title_info: Tuple[str, str], type: str) -> List[int]:
                     or normalized_slug.startswith(normalized_title_tag)
                 )
             ):
-                trakt_ids.append(result[type]["ids"]["trakt"])
+                trakt_ids.append(result[media_type]["ids"]["trakt"])
                 logging.debug(
-                    f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
+                    f"Added trakt id: {result[media_type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
                 )
                 break
         if trakt_ids == [] and results:
-            logging.warning(f"Title not found: {title}, will add first result : {results[0][type]['title']}")
-            trakt_ids.append(results[0][type]["ids"]["trakt"])
+            logging.warning(f"Title not found: {title}, will add first result : {results[0][media_type]['title']}")
+            trakt_ids.append(results[0][media_type]["ids"]["trakt"])
         elif trakt_ids == [] and not results:
             logging.warning(f"No results found for title: {title}")
     else:
@@ -727,8 +799,8 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
         results = response.json()
         logging.debug(f"Results: {results} for title: {title}")
         for result in results:
-            type = result["type"]
-            normalized_slug = result[type]["ids"]["slug"].replace("-", "")
+            media_type = result["type"]
+            normalized_slug = result[media_type]["ids"]["slug"].replace("-", "")
             normalized_title_tag = title_tag.replace("-", "")
             logging.debug(
                 "Comparing "
@@ -736,24 +808,24 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
                 + " and tag "
                 + normalized_title_tag
                 + " with: "
-                + result[type]["title"].lower()
+                + result[media_type]["title"].lower()
                 + " and slug "
                 + normalized_slug
             )
             if (
-                result[type]["title"].lower() == title.lower()
+                result[media_type]["title"].lower() == title.lower()
                 and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
                 or (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
             ):
-                trakt_info.append((type, result[type]["ids"]["trakt"], rank))
+                trakt_info.append((media_type, result[media_type]["ids"]["trakt"], rank))
                 logging.debug(
-                    f"Added trakt id: {result[type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
+                    f"Added trakt id: {result[media_type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
                 )
                 break
         if trakt_info == [] and results:
-            type_0 = results[0]["type"]
-            logging.warning(f"Title not found: {title}, will add first result : {results[0][type_0]['title']}")
-            trakt_info.append((type_0, results[0][type_0]["ids"]["trakt"], rank))
+            media_type_0 = results[0]["type"]
+            logging.warning(f"Title not found: {title}, will add first result : {results[0][media_type_0]['title']}")
+            trakt_info.append((media_type_0, results[0][media_type_0]["ids"]["trakt"], rank))
         elif trakt_info == [] and not results:
             logging.warning(f"No results found for title: {title}")
     else:
@@ -763,46 +835,68 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
 
 # Create a Trakt list payload based on the top movies and shows list
 def create_type_trakt_list_payload(
-    top_list: List[Tuple[str, str, str, str, str, str, str]], type: str
+    top_list: List[Tuple[str, str, str, str, str, str, str]], media_type: str
 ) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
-    titles_info = [(title, title_tag) for _, title, title_tag, *_ in top_list]
+    """Create a Trakt list payload based on the top movies or shows list.
 
-    # get trakt ids from titles
+    Uses TMDB ID search when available, falls back to title search otherwise.
+    """
     trakt_ids = []
-    for title_info in titles_info:
-        trakt_id = search_title_by_type(title_info, type)
-        if trakt_id:
-            trakt_ids.append(trakt_id[0])
 
-    # create the payload
-    payload = {f"{type}s": []}
+    for rank, title, title_tag, year, starring, tmdb_id, imdb_id in top_list:
+        trakt_id = None
+
+        # Try TMDB ID search first
+        if tmdb_id != "Unknown":
+            trakt_id = search_trakt_by_tmdb_id(tmdb_id, media_type)
+
+        # Fallback to title search
+        if trakt_id is None:
+            logging.debug(f"Falling back to title search for: {title}")
+            title_results = search_title_by_type((title, title_tag), media_type)
+            if title_results:
+                trakt_id = title_results[0]
+
+        if trakt_id:
+            trakt_ids.append(trakt_id)
+
+    # Create the payload
+    payload: Dict[str, List[Dict[str, Any]]] = {f"{media_type}s": []}
     for trakt_id in trakt_ids:
-        payload[f"{type}s"].append({"ids": {"trakt": trakt_id}})
+        payload[f"{media_type}s"].append({"ids": {"trakt": trakt_id}})
 
     logging.debug(f"Payload: {payload}")
     return payload
 
 
-# Create a mixed Trakt list payload based on an overral top movies and shows list
+# Create a mixed Trakt list payload based on an overall top movies and shows list
 def create_mixed_trakt_list_payload(
     top_list: List[Tuple[str, str, str, str, str, str, str]],
 ) -> Dict[str, List[Dict[str, Any]]]:
-    # get titles from top_list - extract only rank, title, title_tag from 7-tuple
-    titles_info = [(title, title_tag, rank) for rank, title, title_tag, *_ in top_list]
+    """Create a mixed Trakt list payload based on an overall top movies and shows list.
 
-    # get trakt ids from titles
-    trakt_infos = []
-    for title_info in titles_info:
-        trakt_info = search_title(title_info)
-        logging.debug(f"Trakt info: {trakt_info}")
+    Uses TMDB ID search when available, falls back to title search otherwise.
+    """
+    payload: Dict[str, List[Dict[str, Any]]] = {"movies": [], "shows": []}
+
+    for rank, title, title_tag, year, starring, tmdb_id, imdb_id in top_list:
+        trakt_info = None
+
+        # Try TMDB ID search first (returns type and trakt_id)
+        if tmdb_id != "Unknown":
+            trakt_info = search_trakt_by_tmdb_id_any_type(tmdb_id)
+
+        # Fallback to title search
+        if trakt_info is None:
+            logging.debug(f"Falling back to title search for: {title}")
+            title_results = search_title((title, title_tag, rank))
+            if title_results:
+                media_type, trakt_id, _ = title_results[0]
+                trakt_info = (media_type, trakt_id)
+
         if trakt_info:
-            trakt_infos.append(trakt_info[0])
-
-    # create the payload
-    payload = {"movies": [], "shows": []}
-    for type, trakt_id, rank in trakt_infos:
-        payload[f"{type}s"].append({"ids": {"trakt": trakt_id}})
+            media_type, trakt_id = trakt_info
+            payload[f"{media_type}s"].append({"ids": {"trakt": trakt_id}})
 
     logging.debug(f"Payload: {payload}")
     return payload
