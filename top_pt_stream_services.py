@@ -768,10 +768,9 @@ def search_title_by_type(title_info: Tuple[str, str], media_type: str) -> List[i
                     or normalized_slug.startswith(normalized_title_tag)
                 )
             ):
-                trakt_ids.append(result[media_type]["ids"]["trakt"])
-                logging.debug(
-                    f"Added trakt id: {result[media_type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
-                )
+                trakt_id = result[media_type]["ids"]["trakt"]
+                trakt_ids.append(trakt_id)
+                logging.debug(f"Added trakt id: {trakt_id} with slug {normalized_slug} for title: {title}")
                 break
         if trakt_ids == [] and results:
             logging.warning(f"Title not found: {title}, will add first result : {results[0][media_type]['title']}")
@@ -817,10 +816,9 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
                 and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
                 or (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
             ):
-                trakt_info.append((media_type, result[media_type]["ids"]["trakt"], rank))
-                logging.debug(
-                    f"Added trakt id: {result[media_type]['ids']['trakt']} with slug {normalized_slug} for title: {title}"
-                )
+                trakt_id = result[media_type]["ids"]["trakt"]
+                trakt_info.append((media_type, trakt_id, rank))
+                logging.debug(f"Added trakt id: {trakt_id} with slug {normalized_slug} for title: {title}")
                 break
         if trakt_info == [] and results:
             media_type_0 = results[0]["type"]
