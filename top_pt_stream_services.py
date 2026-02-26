@@ -1,3 +1,4 @@
+import itertools
 import logging
 import os
 import re
@@ -1317,19 +1318,17 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
 # Create a Trakt list payload based on the top movies and shows list
 def create_type_trakt_list_payload(
     top_list: List[Tuple[str, str, str, str, str, str, str, str]], media_type: str
-) -> Dict[str, List[Dict[str, Any]]]:
-    """Create a Trakt list payload based on the top movies or shows list.
+) -> List[Tuple[str, int]]:
+    """Create an ordered list of (trakt_type, trakt_id) tuples for a typed list.
 
     Uses TMDB ID search when available, falls back to opposite-type search
     (for cross-platform type disagreements), then title search.
-    Returns a mixed payload so items Trakt classifies differently are still included.
+    Returns items in rank order so ``update_list_ordered`` can preserve positions.
     """
     _OPPOSITE_TRAKT_TYPE = {"movie": "show", "show": "movie"}
     opposite_type = _OPPOSITE_TRAKT_TYPE[media_type]
 
-    # Mixed payload: most items go into media_type bucket, but cross-platform mismatches
-    # go into the opposite bucket. update_list() already accepts mixed payloads.
-    payload: Dict[str, List[Dict[str, Any]]] = {"movies": [], "shows": []}
+    items: List[Tuple[str, int]] = []
 
     for rank, title, title_tag, year, starring, tmdb_id, imdb_id, _media_type in top_list:
         trakt_id = None
@@ -1358,26 +1357,27 @@ def create_type_trakt_list_payload(
                 resolved_type = media_type
 
         if trakt_id:
-            payload[f"{resolved_type}s"].append({"ids": {"trakt": trakt_id}})
+            items.append((resolved_type, trakt_id))
 
-    logging.debug(f"Payload: {payload}")
-    return payload
+    logging.debug(f"Ordered items: {items}")
+    return items
 
 
 # Create a mixed Trakt list payload based on an overall top movies and shows list
 def create_mixed_trakt_list_payload(
     top_list: List[Tuple[str, str, str, str, str, str, str, str]],
-) -> Dict[str, List[Dict[str, Any]]]:
-    """Create a mixed Trakt list payload based on an overall top movies and shows list.
+) -> List[Tuple[str, int]]:
+    """Create an ordered list of (trakt_type, trakt_id) tuples for a mixed list.
 
     Uses TMDB ID + media_type for type-filtered Trakt search when available,
     falls back to untyped TMDB search, then title search.
+    Returns items in rank order so ``update_list_ordered`` can preserve positions.
     """
     # Map TMDB media_type values to Trakt type values
     _TMDB_TO_TRAKT_TYPE = {"movie": "movie", "tv": "show"}
     _OPPOSITE_TRAKT_TYPE = {"movie": "show", "show": "movie"}
 
-    payload: Dict[str, List[Dict[str, Any]]] = {"movies": [], "shows": []}
+    items: List[Tuple[str, int]] = []
 
     for rank, title, title_tag, year, starring, tmdb_id, imdb_id, media_type in top_list:
         trakt_info = None
@@ -1415,10 +1415,10 @@ def create_mixed_trakt_list_payload(
 
         if trakt_info:
             resolved_type, trakt_id = trakt_info
-            payload[f"{resolved_type}s"].append({"ids": {"trakt": trakt_id}})
+            items.append((resolved_type, trakt_id))
 
-    logging.debug(f"Payload: {payload}")
-    return payload
+    logging.debug(f"Ordered items: {items}")
+    return items
 
 
 # Update a trakt list
@@ -1440,6 +1440,49 @@ def update_list(list_slug: str, payload: Dict[str, List[Dict[str, Any]]]) -> Uni
     else:
         logging.warning("Payload is empty. No items to add on list " + list_slug)
         return 304
+
+
+# Post a batch of items to a Trakt list (single type per call)
+@retry_request
+def _post_list_items(list_slug: str, payload: Dict[str, List[Dict[str, Any]]]) -> Union[requests.Response, int]:
+    """POST a single batch of same-type items to a Trakt list.
+
+    Unlike ``update_list``, this does NOT empty the list first — the caller
+    (``update_list_ordered``) is responsible for that.
+    """
+    logging.info(f"Posting batch to {list_slug}: {payload}")
+    response = requests.post(
+        f"https://api.trakt.tv/users/me/lists/{list_slug}/items",
+        headers=get_headers(),
+        json=payload,
+        timeout=REQUEST_TIMEOUT,
+    )
+    if response.status_code in [200, 201]:
+        logging.info("Batch posted successfully")
+    return response
+
+
+# Update a Trakt list preserving rank order across mixed types
+def update_list_ordered(list_slug: str, items: List[Tuple[str, int]]) -> None:
+    """Update a Trakt list from an ordered sequence of ``(trakt_type, trakt_id)`` tuples.
+
+    Empties the list once, then groups consecutive same-type items into mini-batches
+    and POSTs each batch sequentially.  This preserves rank order even when items of
+    different Trakt types (movie / show) are interleaved.
+    """
+    if not items:
+        logging.warning("No items to add on list " + list_slug)
+        return
+
+    empty_list(list_slug)
+    logging.info(f"Updating list {list_slug} with {len(items)} items in order ...")
+
+    for trakt_type, group in itertools.groupby(items, key=lambda x: x[0]):
+        batch_ids = [{"ids": {"trakt": trakt_id}} for _, trakt_id in group]
+        payload: Dict[str, List[Dict[str, Any]]] = {f"{trakt_type}s": batch_ids}
+        _post_list_items(list_slug, payload)
+
+    logging.info(f"List {list_slug} updated successfully")
 
 
 # ============================
@@ -1507,6 +1550,9 @@ class StreamingServiceTracker:
 
             # Report execution summary
             self._report_execution_summary(scraped_data)
+
+            # Write GitHub Actions job summary (no-op outside GHA)
+            self._write_github_summary(scraped_data)
 
             logging.info("Finished updating lists")
             return 0
@@ -1613,12 +1659,12 @@ class StreamingServiceTracker:
             movies_update = create_type_trakt_list_payload(movies, "movie")
             shows_update = create_type_trakt_list_payload(shows, "show")
 
-            update_list(movies_slug, movies_update)
-            update_list(shows_slug, shows_update)
+            update_list_ordered(movies_slug, movies_update)
+            update_list_ordered(shows_slug, shows_update)
 
         # Handle Disney+ list as Disney stopped showing top movies and shows separately
         disney_update = create_mixed_trakt_list_payload(data["disney_overall"])
-        update_list(trakt_disney_list_slug, disney_update)
+        update_list_ordered(trakt_disney_list_slug, disney_update)
 
         # Handle kids' lists
         if self.config.KIDS_LIST:
@@ -1636,8 +1682,8 @@ class StreamingServiceTracker:
                 movies_update = create_type_trakt_list_payload(movies, "movie")
                 shows_update = create_type_trakt_list_payload(shows, "show")
 
-                update_list(movies_slug, movies_update)
-                update_list(shows_slug, shows_update)
+                update_list_ordered(movies_slug, movies_update)
+                update_list_ordered(shows_slug, shows_update)
 
     def _report_execution_summary(self, data: Dict[str, Any]) -> None:
         """Report summary of execution including successes and failures."""
@@ -1655,6 +1701,96 @@ class StreamingServiceTracker:
 
         success_rate = (successful_services / total_services) * 100 if total_services > 0 else 0
         logging.info(f"  Success rate: {success_rate:.1f}%")
+
+    def _write_github_summary(self, data: Dict[str, Any]) -> None:
+        """Write a rich Markdown summary to GitHub Actions Job Summary ($GITHUB_STEP_SUMMARY).
+
+        Silently skips if not running inside GitHub Actions.
+        """
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if not summary_path:
+            logging.debug("GITHUB_STEP_SUMMARY not set; skipping GHA summary")
+            return
+
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+        # Service display configuration: (data_key, display_name, icon, trakt_slug)
+        service_lists: List[Tuple[str, str, str, str]] = [
+            ("netflix_movies", "Netflix Movies", "red_circle", trakt_netflix_movies_list_slug),
+            ("netflix_shows", "Netflix Shows", "red_circle", trakt_netflix_shows_list_slug),
+            ("hbo_movies", "HBO Movies", "purple_circle", trakt_hbo_movies_list_slug),
+            ("hbo_shows", "HBO Shows", "purple_circle", trakt_hbo_shows_list_slug),
+            ("disney_overall", "Disney+ Overall", "large_blue_circle", trakt_disney_list_slug),
+            ("apple_movies", "Apple TV+ Movies", "white_circle", trakt_apple_movies_list_slug),
+            ("apple_shows", "Apple TV+ Shows", "white_circle", trakt_apple_shows_list_slug),
+            ("prime_movies", "Prime Video Movies", "blue_circle", trakt_prime_movies_list_slug),
+            ("prime_shows", "Prime Video Shows", "blue_circle", trakt_prime_shows_list_slug),
+        ]
+
+        if self.config.KIDS_LIST:
+            service_lists.extend(
+                [
+                    (
+                        "netflix_kids_movies",
+                        "Netflix Kids Movies",
+                        "red_circle",
+                        trakt_netflix_kids_movies_list_slug,
+                    ),
+                    (
+                        "netflix_kids_shows",
+                        "Netflix Kids Shows",
+                        "red_circle",
+                        trakt_netflix_kids_shows_list_slug,
+                    ),
+                ]
+            )
+
+        lines: List[str] = []
+        lines.append("# Top Streaming Services Portugal")
+        lines.append(f"> Updated: **{now}**\n")
+
+        # Execution stats
+        total = len(data)
+        ok = sum(1 for v in data.values() if v and len(v) > 0)
+        fail = len(self._failed_services)
+        lines.append(f"**{ok}** / **{total}** lists scraped successfully")
+        if fail:
+            lines.append(f"  |  **{fail}** failed: {', '.join(sorted(self._failed_services))}")
+        lines.append("")
+
+        trakt_base = "https://trakt.tv/users/me/lists"
+
+        for data_key, display_name, icon, slug in service_lists:
+            items = data.get(data_key, [])
+            trakt_url = f"{trakt_base}/{slug}"
+            lines.append(f"### :{icon}: [{display_name}]({trakt_url})")
+
+            if not items:
+                lines.append("_No data scraped_\n")
+                continue
+
+            lines.append("")
+            lines.append("| # | Title | Year | TMDB | Type |")
+            lines.append("|--:|-------|------|------|------|")
+
+            for entry in items:
+                rank, title, _slug, year, _starring, tmdb_id, _imdb_id, media_type = entry
+                tmdb_cell = tmdb_id if tmdb_id != "Unknown" else "-"
+                type_cell = media_type if media_type != "Unknown" else "-"
+                # Escape pipes in title to avoid breaking the Markdown table
+                safe_title = str(title).replace("|", "\\|")
+                lines.append(f"| {rank} | {safe_title} | {year} | {tmdb_cell} | {type_cell} |")
+
+            lines.append("")
+
+        summary_md = "\n".join(lines)
+
+        try:
+            with open(summary_path, "a", encoding="utf-8") as fh:
+                fh.write(summary_md + "\n")
+            logging.info("GitHub Actions job summary written")
+        except OSError as exc:
+            logging.warning(f"Could not write GHA summary: {exc}")
 
 
 # ============================
