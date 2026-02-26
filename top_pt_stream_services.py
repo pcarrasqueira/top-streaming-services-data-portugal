@@ -1320,31 +1320,45 @@ def create_type_trakt_list_payload(
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Create a Trakt list payload based on the top movies or shows list.
 
-    Uses TMDB ID search when available, falls back to title search otherwise.
+    Uses TMDB ID search when available, falls back to opposite-type search
+    (for cross-platform type disagreements), then title search.
+    Returns a mixed payload so items Trakt classifies differently are still included.
     """
-    trakt_ids = []
+    _OPPOSITE_TRAKT_TYPE = {"movie": "show", "show": "movie"}
+    opposite_type = _OPPOSITE_TRAKT_TYPE[media_type]
+
+    # Mixed payload: most items go into media_type bucket, but cross-platform mismatches
+    # go into the opposite bucket. update_list() already accepts mixed payloads.
+    payload: Dict[str, List[Dict[str, Any]]] = {"movies": [], "shows": []}
 
     for rank, title, title_tag, year, starring, tmdb_id, imdb_id, _media_type in top_list:
         trakt_id = None
+        resolved_type = media_type  # Default: the expected type for this list
 
-        # Try TMDB ID search first
+        # Try TMDB ID search with the expected type first
         if tmdb_id != "Unknown":
             trakt_id = search_trakt_by_tmdb_id(tmdb_id, media_type)
 
-        # Fallback to title search
+            # Cross-platform type disagreement: retry with opposite type
+            if trakt_id is None:
+                trakt_id = search_trakt_by_tmdb_id(tmdb_id, opposite_type)
+                if trakt_id is not None:
+                    logging.warning(
+                        f"Type mismatch for '{title}' (TMDB ID {tmdb_id}): "
+                        f"expected {media_type}, Trakt has it as {opposite_type}"
+                    )
+                    resolved_type = opposite_type
+
+        # Fallback to title search (uses original media_type)
         if trakt_id is None:
             logging.debug(f"Falling back to title search for: {title}")
             title_results = search_title_by_type((title, title_tag), media_type)
             if title_results:
                 trakt_id = title_results[0]
+                resolved_type = media_type
 
         if trakt_id:
-            trakt_ids.append(trakt_id)
-
-    # Create the payload
-    payload: Dict[str, List[Dict[str, Any]]] = {f"{media_type}s": []}
-    for trakt_id in trakt_ids:
-        payload[f"{media_type}s"].append({"ids": {"trakt": trakt_id}})
+            payload[f"{resolved_type}s"].append({"ids": {"trakt": trakt_id}})
 
     logging.debug(f"Payload: {payload}")
     return payload
@@ -1361,6 +1375,7 @@ def create_mixed_trakt_list_payload(
     """
     # Map TMDB media_type values to Trakt type values
     _TMDB_TO_TRAKT_TYPE = {"movie": "movie", "tv": "show"}
+    _OPPOSITE_TRAKT_TYPE = {"movie": "show", "show": "movie"}
 
     payload: Dict[str, List[Dict[str, Any]]] = {"movies": [], "shows": []}
 
@@ -1375,7 +1390,18 @@ def create_mixed_trakt_list_payload(
                 if trakt_id is not None:
                     trakt_info = (trakt_type, trakt_id)
 
-            # Fallback to untyped search if media_type was unknown or typed search failed
+                # Cross-platform type disagreement: retry with opposite type before untyped fallback
+                if trakt_info is None:
+                    opposite_type = _OPPOSITE_TRAKT_TYPE[trakt_type]
+                    trakt_id = search_trakt_by_tmdb_id(tmdb_id, opposite_type)
+                    if trakt_id is not None:
+                        logging.warning(
+                            f"Type mismatch for '{title}' (TMDB ID {tmdb_id}): "
+                            f"TMDB says {media_type}, Trakt has it as {opposite_type}"
+                        )
+                        trakt_info = (opposite_type, trakt_id)
+
+            # Fallback to untyped search if media_type was unknown or all typed searches failed
             if trakt_info is None:
                 trakt_info = search_trakt_by_tmdb_id_any_type(tmdb_id)
 
