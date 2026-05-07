@@ -3,36 +3,38 @@ name: Get Top PT Stream Services
 "on":
   workflow_dispatch:
   schedule:
-    - cron: '0 0,8,12,17 * * *'  # 00:00, 08:00, 12:00, 17:00 todos os dias
+    - cron: '0 0,8,12,17 * * *'
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Verify runner tools
+        run: |
+          python3 --version
+          curl --version
+          gh --version
 
       - name: Install dependencies
         run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-          sudo apt-get update && sudo apt-get install -y jq
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       - name: Run code quality checks
         run: |
-          black --check --line-length 120 --target-version py312 top_pt_stream_services.py
-          flake8 top_pt_stream_services.py --max-line-length=120
-          bandit -r top_pt_stream_services.py
-
-      - name: Install GitHub CLI
-        run: sudo apt-get install gh -y
+          .venv/bin/black --check --line-length 120 --target-version py312 top_pt_stream_services.py
+          .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
+          .venv/bin/bandit -r top_pt_stream_services.py
 
       - name: Refresh Trakt Token
         id: refresh
@@ -43,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
-          response=$(curl -s --location 'https://api.trakt.tv/oauth/token' \
+          response=$(curl -sS --fail --location 'https://api.trakt.tv/oauth/token' \
             --header 'Content-Type: application/json' \
             --data '{
                 "refresh_token": "'"$REFRESH_TOKEN"'",
@@ -53,16 +55,14 @@ jobs:
                 "grant_type": "refresh_token"
             }')
 
-          access_token=$(echo "$response" | jq -r '.access_token')
-          refresh_token=$(echo "$response" | jq -r '.refresh_token')
+          access_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<< "$response")
+          refresh_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["refresh_token"])' <<< "$response")
 
           echo "::add-mask::$access_token"
           echo "::add-mask::$refresh_token"
 
-          # Save as output so the next step can access it
-          echo "access_token=$access_token" >> $GITHUB_OUTPUT
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
-          # Update GitHub secrets for future runs
           gh secret set ACCESS_TOKEN -b"$access_token"
           gh secret set REFRESH_TOKEN -b"$refresh_token"
 
@@ -73,4 +73,4 @@ jobs:
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: python top_pt_stream_services.py
+        run: .venv/bin/python top_pt_stream_services.py
