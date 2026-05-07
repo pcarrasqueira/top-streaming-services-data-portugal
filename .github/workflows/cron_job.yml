@@ -38,8 +38,9 @@ jobs:
 
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
-          gh secret set ACCESS_TOKEN -b"$access_token"
-          gh secret set REFRESH_TOKEN -b"$refresh_token"
+          gh secret set ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" -b"$access_token"
+          gh secret set REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" -b"$refresh_token"
+
 
   scrape:
     needs: refresh-token
