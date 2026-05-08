@@ -5,12 +5,18 @@ name: Get Top PT Stream Services
   schedule:
     - cron: '0 0,8,12,17 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   refresh-token:
     runs-on: ubuntu-latest
+    outputs:
+      access_token: ${{ steps.refresh.outputs.access_token }}
 
     steps:
       - name: Refresh Trakt Token
+        id: refresh
         env:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -29,6 +35,8 @@ jobs:
 
           access_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<< "$response")
           refresh_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["refresh_token"])' <<< "$response")
+
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
           echo "::add-mask::$access_token"
           echo "::add-mask::$refresh_token"
@@ -58,16 +66,16 @@ jobs:
           .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
           .venv/bin/bandit -r top_pt_stream_services.py
 
-      - name: Check token env
+      - name: Check refreshed token env
         env:
-          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          ACCESS_TOKEN: ${{ needs.refresh-token.outputs.access_token }}
         run: |
-          test -n "$ACCESS_TOKEN" && echo "ACCESS_TOKEN is set" || (echo "ACCESS_TOKEN is empty" && exit 1)
+          test -n "$ACCESS_TOKEN" && echo "Refreshed ACCESS_TOKEN is set" || (echo "Refreshed ACCESS_TOKEN is empty" && exit 1)
 
       - name: Run Python Script
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          ACCESS_TOKEN: ${{ needs.refresh-token.outputs.access_token }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
