@@ -1,4 +1,4 @@
-name: Get Top PT Stream Services
+name: Refresh Trakt Token and Dispatch Scraper
 
 "on":
   workflow_dispatch:
@@ -7,16 +7,14 @@ name: Get Top PT Stream Services
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   refresh-token:
     runs-on: ubuntu-latest
-    outputs:
-      access_token: ${{ steps.refresh.outputs.access_token }}
 
     steps:
       - name: Refresh Trakt Token
-        id: refresh
         env:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -36,47 +34,14 @@ jobs:
           access_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<< "$response")
           refresh_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["refresh_token"])' <<< "$response")
 
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
-
           echo "::add-mask::$access_token"
           echo "::add-mask::$refresh_token"
 
           gh secret set ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" -b"$access_token"
           gh secret set REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" -b"$refresh_token"
 
-  scrape:
-    needs: refresh-token
-    runs-on: self-hosted
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          python3 -m venv .venv
-          . .venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -r requirements-dev.txt
-
-      - name: Run code quality checks
-        run: |
-          .venv/bin/black --check --line-length 120 --target-version py312 top_pt_stream_services.py
-          .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
-          .venv/bin/bandit -r top_pt_stream_services.py
-
-      - name: Check refreshed token env
+      - name: Dispatch scraper workflow
         env:
-          ACCESS_TOKEN: ${{ needs.refresh-token.outputs.access_token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          test -n "$ACCESS_TOKEN" && echo "Refreshed ACCESS_TOKEN is set" || (echo "Refreshed ACCESS_TOKEN is empty" && exit 1)
-
-      - name: Run Python Script
-        env:
-          CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ACCESS_TOKEN: ${{ needs.refresh-token.outputs.access_token }}
-          KIDS_LIST: ${{ vars.KIDS_LIST }}
-          PRINT_LISTS: ${{ vars.PRINT_LISTS }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: .venv/bin/python top_pt_stream_services.py
+          gh workflow run scrape_top_stream_services.yml --repo "$GITHUB_REPOSITORY"
