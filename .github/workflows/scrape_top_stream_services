@@ -1,0 +1,44 @@
+name: Scrape Top Stream Services
+
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run code quality checks
+        run: |
+          .venv/bin/black --check --line-length 120 --target-version py312 top_pt_stream_services.py
+          .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
+          .venv/bin/bandit -r top_pt_stream_services.py
+
+      - name: Check token env
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        run: |
+          test -n "$ACCESS_TOKEN" && echo "ACCESS_TOKEN is set" || (echo "ACCESS_TOKEN is empty" && exit 1)
+
+      - name: Run Python Script
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          KIDS_LIST: ${{ vars.KIDS_LIST }}
+          PRINT_LISTS: ${{ vars.PRINT_LISTS }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: .venv/bin/python top_pt_stream_services.py
