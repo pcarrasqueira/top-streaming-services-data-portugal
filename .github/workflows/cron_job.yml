@@ -8,12 +8,9 @@ name: Get Top PT Stream Services
 jobs:
   refresh-token:
     runs-on: ubuntu-latest
-    outputs:
-      access_token: ${{ steps.refresh.outputs.access_token }}
 
     steps:
       - name: Refresh Trakt Token
-        id: refresh
         env:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -36,11 +33,8 @@ jobs:
           echo "::add-mask::$access_token"
           echo "::add-mask::$refresh_token"
 
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
-
           gh secret set ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" -b"$access_token"
           gh secret set REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" -b"$refresh_token"
-
 
   scrape:
     needs: refresh-token
@@ -64,10 +58,16 @@ jobs:
           .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
           .venv/bin/bandit -r top_pt_stream_services.py
 
+      - name: Check token env
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        run: |
+          test -n "$ACCESS_TOKEN" && echo "ACCESS_TOKEN is set" || (echo "ACCESS_TOKEN is empty" && exit 1)
+
       - name: Run Python Script
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          ACCESS_TOKEN: ${{ needs.refresh-token.outputs.access_token }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
