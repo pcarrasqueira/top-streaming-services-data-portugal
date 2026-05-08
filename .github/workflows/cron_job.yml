@@ -44,7 +44,7 @@ jobs:
 
   scrape:
     needs: refresh-token
-    runs-on: [self-hosted, linux, x64, peakplay-macmini]
+    runs-on: self-hosted
 
     steps:
       - name: Checkout repo
