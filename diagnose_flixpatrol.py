@@ -12,37 +12,23 @@ and verify that the scraper can handle them correctly.
 import logging
 import sys
 
-import requests
 from bs4 import BeautifulSoup
 
-from top_pt_stream_services import scrape_top10
+from top_pt_stream_services import CamoufoxFlixPatrolScraper, Config, scrape_top10
 
 # Configure logging to show detailed information
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def diagnose_page(url, section_title):
+def diagnose_page(url, section_title, scraper):
     """Diagnose the structure of a FlixPatrol page."""
     print(f"\n{'='*80}")
     print(f"Diagnosing: {url}")
     print(f"Expected section: {section_title}")
     print("=" * 80)
 
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        "Cookie": "_nss=1",
-    }
-
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        print(f"\nStatus code: {response.status_code}")
-
-        if response.status_code != 200:
-            print(f"ERROR: Failed to retrieve page")
-            return
-
-        soup = BeautifulSoup(response.content, "html.parser")
+        soup = BeautifulSoup(scraper.fetch_html(url), "html.parser")
 
         # Check for various heading tags
         print("\n--- HEADING TAGS FOUND ---")
@@ -128,7 +114,7 @@ def diagnose_page(url, section_title):
         traceback.print_exc()
 
 
-def test_scraper(url, section_title):
+def test_scraper(url, section_title, scraper):
     """Test the actual scraper with the URL."""
     print(f"\n{'='*80}")
     print(f"TESTING SCRAPER")
@@ -136,7 +122,7 @@ def test_scraper(url, section_title):
     print(f"Section: {section_title}")
     print("=" * 80)
 
-    result = scrape_top10(url, section_title)
+    result = scrape_top10(url, section_title, scraper)
 
     if result is None:
         print("❌ Scraper returned None - Check logs above for details")
@@ -144,7 +130,7 @@ def test_scraper(url, section_title):
         print("⚠️  Scraper returned empty list - Section might not be found")
     else:
         print(f"✅ Scraper found {len(result)} items:")
-        for rank, title, slug in result:
+        for rank, title, slug, *_ in result:
             print(f"   {rank}. {title} ({slug})")
 
 
@@ -156,13 +142,14 @@ if __name__ == "__main__":
     # Test Netflix Portugal page
     url = "https://flixpatrol.com/top10/netflix/portugal/"
 
-    print("\n\n### Testing Movies Section ###")
-    diagnose_page(url, "TOP 10 Movies")
-    test_scraper(url, "TOP 10 Movies")
+    with CamoufoxFlixPatrolScraper(Config()) as scraper:
+        print("\n\n### Testing Movies Section ###")
+        diagnose_page(url, "TOP 10 Movies", scraper)
+        test_scraper(url, "TOP 10 Movies", scraper)
 
-    print("\n\n### Testing TV Shows Section ###")
-    diagnose_page(url, "TOP 10 TV Shows")
-    test_scraper(url, "TOP 10 TV Shows")
+        print("\n\n### Testing TV Shows Section ###")
+        diagnose_page(url, "TOP 10 TV Shows", scraper)
+        test_scraper(url, "TOP 10 TV Shows", scraper)
 
     print("\n\n" + "=" * 80)
     print("Diagnostic complete!")

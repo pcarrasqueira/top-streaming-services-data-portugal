@@ -163,3 +163,4 @@ cython_debug/
 
 # Project specific
 test_refactoring.py
+.camoufox-user-data/

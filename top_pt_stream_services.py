@@ -34,6 +34,13 @@ class Config:
         self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
         self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
+        # Camoufox configuration.  A persistent profile retains cookies and browser
+        # state between runs. Run with a visible browser by default so Camoufox
+        # can complete anti-bot challenges; automation may opt into headless mode.
+        self.CAMOUFOX_HEADLESS = os.getenv("CAMOUFOX_HEADLESS", "False").lower() in ("true", "1", "yes")
+        self.CAMOUFOX_USER_DATA_DIR = os.getenv("CAMOUFOX_USER_DATA_DIR", ".camoufox-user-data")
+        self.CAMOUFOX_PAGE_WAIT_MS = int(os.getenv("CAMOUFOX_PAGE_WAIT_MS", "30000"))
+
         # Request configuration
         self.REQUEST_TIMEOUT = 30  # seconds
         self.MAX_RETRIES = 10
@@ -124,9 +131,6 @@ def _create_retry_session(
     return session
 
 
-# Module-level retry-capable session for all HTTP requests (scraping)
-_http_session = _create_retry_session()
-
 # Dedicated TMDB session: carries the api_key as a default query parameter
 # so it never appears in URL string literals or tracebacks.
 _tmdb_session: Optional[requests.Session] = None
@@ -147,15 +151,6 @@ def _get_tmdb_session() -> requests.Session:
     return _tmdb_session
 
 
-# Browser-like headers for FlixPatrol scraping (module-level constant)
-SCRAPE_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-    ),
-    "Cookie": "_nss=1",
-}
 CLIENT_ID = config.CLIENT_ID
 ACCESS_TOKEN = config.ACCESS_TOKEN
 KIDS_LIST = config.KIDS_LIST
@@ -584,8 +579,57 @@ def _content_hint_from_section(section_title: str) -> Optional[str]:
 _page_cache: Dict[str, BeautifulSoup] = {}
 
 
+class CamoufoxFlixPatrolScraper:
+    """Fetch FlixPatrol pages through one persistent Camoufox browser session."""
+
+    def __init__(self, config_instance: Config):
+        self.config = config_instance
+        self._camoufox_context: Any = None
+        self.browser: Any = None
+
+    def __enter__(self) -> "CamoufoxFlixPatrolScraper":
+        try:
+            from camoufox.sync_api import Camoufox
+        except ImportError as error:
+            raise RuntimeError(
+                "Camoufox is not installed. Run 'pip install -r requirements.txt' followed by 'camoufox fetch'."
+            ) from error
+
+        self._camoufox_context = Camoufox(
+            headless=self.config.CAMOUFOX_HEADLESS,
+            humanize=True,
+            os="windows",
+            persistent_context=True,
+            user_data_dir=self.config.CAMOUFOX_USER_DATA_DIR,
+        )
+        self.browser = self._camoufox_context.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        if self._camoufox_context is not None:
+            self._camoufox_context.__exit__(exc_type, exc_value, traceback)
+        self.browser = None
+        self._camoufox_context = None
+
+    def fetch_html(self, url: str, ready_selector: Optional[str] = None) -> str:
+        """Navigate to ``url`` and return HTML after an optional element is rendered."""
+        if self.browser is None:
+            raise RuntimeError("Camoufox browser session has not been started")
+
+        page = self.browser.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=self.config.REQUEST_TIMEOUT * 1000)
+            if ready_selector:
+                page.wait_for_selector(ready_selector, state="attached", timeout=self.config.CAMOUFOX_PAGE_WAIT_MS)
+            return page.content()
+        finally:
+            page.close()
+
+
 # Scrape movie or show data based in the section title
-def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, str, str, str, str, str, str]]]:
+def scrape_top10(
+    url: str, section_title: str, scraper: CamoufoxFlixPatrolScraper
+) -> Optional[List[Tuple[str, str, str, str, str, str, str, str]]]:
     """Scrape a top-10 section from a FlixPatrol page.
 
     Uses a per-run page cache so the same URL is fetched at most once
@@ -604,13 +648,7 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
             soup = _page_cache[url]
             logging.debug("Using cached page for %s", url)
         else:
-            response = _http_session.get(url, headers=SCRAPE_HEADERS, timeout=REQUEST_TIMEOUT)
-
-            if response.status_code != 200:
-                logging.error("Failed to retrieve page %s, status code: %s", url, response.status_code)
-                return None
-
-            soup = BeautifulSoup(response.content, "html.parser")
+            soup = BeautifulSoup(scraper.fetch_html(url, ready_selector="table tbody tr"), "html.parser")
             _page_cache[url] = soup
 
         # Locate the correct section - search in document order, not heading tag order
@@ -686,7 +724,7 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
 
                 # Enrich with details from FlixPatrol detail page + TMDB
                 year, starring, tmdb_id, imdb_id, media_type = scrape_details(
-                    title_tag_slug, title, content_hint=content_hint
+                    title_tag_slug, title, scraper, content_hint=content_hint
                 )
 
                 data.append((rank, title, title_tag_slug, year, starring, tmdb_id, imdb_id, media_type))
@@ -697,9 +735,6 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
         logging.info("Scraped %d items from %s", len(data), section_title)
         return data
 
-    except requests.exceptions.RequestException as e:
-        logging.error("Request failed for %s: %s", url, e)
-        return None
     except Exception as e:
         logging.error("Error scraping %s: %s", url, e)
         return None
@@ -707,7 +742,7 @@ def scrape_top10(url: str, section_title: str) -> Optional[List[Tuple[str, str, 
 
 # Scrape the year, starring actor, TMDB id, and IMDb id for a title
 def scrape_details(
-    title_tag_slug: str, title: str, content_hint: Optional[str] = None
+    title_tag_slug: str, title: str, scraper: CamoufoxFlixPatrolScraper, content_hint: Optional[str] = None
 ) -> Tuple[str, str, str, str, str]:
     """Scrape the detail page for a title and enrich with TMDB data.
 
@@ -731,72 +766,62 @@ def scrape_details(
     year_str: Optional[str] = None
 
     try:
-        response = _http_session.get(detail_url, headers=SCRAPE_HEADERS, timeout=REQUEST_TIMEOUT)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, "html.parser")
+        soup = BeautifulSoup(scraper.fetch_html(detail_url), "html.parser")
 
-            # Extract year
-            premiere_div = soup.find("div", attrs={"title": "Premiere"})
-            if premiere_div:
-                span = premiere_div.find("span", class_="text-gray-600")
-                span_text = span.get_text(strip=True) if span else ""
-                year_text = ""
-                if span and span.next_sibling:
-                    sibling = span.next_sibling
-                    if isinstance(sibling, NavigableString):
-                        year_text = str(sibling).strip()
-                    elif isinstance(sibling, Tag):
-                        year_text = sibling.get_text(strip=True)
-                if span_text and year_text:
-                    year = f"{span_text} {year_text}"
-                    year_str = year
-                elif year_text:
-                    year = year_text
-                    year_str = year_text
-                elif span_text:
-                    # Only use span_text if it looks like a year (19xx or 20xx)
-                    if re.search(r"\b(19|20)\d{2}\b", span_text):
-                        year = span_text
-                        year_str = span_text
+        # Extract year
+        premiere_div = soup.find("div", attrs={"title": "Premiere"})
+        if premiere_div:
+            span = premiere_div.find("span", class_="text-gray-600")
+            span_text = span.get_text(strip=True) if span else ""
+            year_text = ""
+            if span and span.next_sibling:
+                sibling = span.next_sibling
+                if isinstance(sibling, NavigableString):
+                    year_text = str(sibling).strip()
+                elif isinstance(sibling, Tag):
+                    year_text = sibling.get_text(strip=True)
+            if span_text and year_text:
+                year = f"{span_text} {year_text}"
+                year_str = year
+            elif year_text:
+                year = year_text
+                year_str = year_text
+            elif span_text and re.search(r"\b(19|20)\d{2}\b", span_text):
+                year = span_text
+                year_str = span_text
 
-            # Extract reference person for TMDB credits verification.
-            # Tries Starring -> Directed by -> Produced by (first available).
-            person_name, person_role = _extract_reference_person(soup)
-            if person_name:
-                starring = person_name
+        # Extract reference person for TMDB credits verification.
+        # Tries Starring -> Directed by -> Produced by (first available).
+        person_name, person_role = _extract_reference_person(soup)
+        if person_name:
+            starring = person_name
 
-            # Extract media type from detail page as secondary signal (useful for Disney+ overall)
-            # FlixPatrol detail pages contain "Movie" or "TV Show" in a metadata div
-            detail_media_type = None
-            type_div = soup.find("div", attrs={"title": "Type"})
-            if type_div:
-                type_text = type_div.get_text(strip=True).lower()
-                if "movie" in type_text:
-                    detail_media_type = "movie"
-                elif "tv show" in type_text or "series" in type_text:
-                    detail_media_type = "series"
+        # Extract media type from detail page as secondary signal (useful for Disney+ overall)
+        # FlixPatrol detail pages contain "Movie" or "TV Show" in a metadata div.
+        detail_media_type = None
+        type_div = soup.find("div", attrs={"title": "Type"})
+        if type_div:
+            type_text = type_div.get_text(strip=True).lower()
+            if "movie" in type_text:
+                detail_media_type = "movie"
+            elif "tv show" in type_text or "series" in type_text:
+                detail_media_type = "series"
 
-            # For Disney+ overall (content_hint=None), use the detail page media type as hint
-            effective_hint = content_hint
-            if effective_hint is None and detail_media_type is not None:
-                effective_hint = detail_media_type
+        # For Disney+ overall (content_hint=None), use the detail page media type as hint.
+        effective_hint = content_hint or detail_media_type
 
-            # TMDB enrichment -- pass content_hint, starring, and person_role for credits verification
-            tmdb_id, media_type = search_tmdb(
-                title,
-                year_str or year,
-                content_hint=effective_hint,
-                starring=person_name,
-                person_role=person_role,
-            )
-            if tmdb_id != "Unknown":
-                imdb_id = get_tmdb_imdb_id(tmdb_id, media_type)
-            else:
-                logging.warning("TMDB ID not found for %s, skipping IMDb lookup", title)
+        # TMDB enrichment -- pass content_hint, starring, and person_role for credits verification.
+        tmdb_id, media_type = search_tmdb(
+            title,
+            year_str or year,
+            content_hint=effective_hint,
+            starring=person_name,
+            person_role=person_role,
+        )
+        if tmdb_id != "Unknown":
+            imdb_id = get_tmdb_imdb_id(tmdb_id, media_type)
         else:
-            logging.warning("Failed to retrieve detail page %s (status %s)", detail_url, response.status_code)
-    except requests.exceptions.RequestException as error:
-        logging.warning("Request failed for detail page %s: %s", title_tag_slug, error)
+            logging.warning("TMDB ID not found for %s, skipping IMDb lookup", title)
     except Exception as error:
         logging.warning("Error scraping details for %s: %s", title_tag_slug, error)
 
@@ -1580,20 +1605,21 @@ class StreamingServiceTracker:
             ("prime_shows", self.config.urls["prime"], self.config.sections["shows"]),
         ]
 
-        # Execute scraping tasks with error handling
-        for task_name, url, section in scraping_tasks:
-            try:
-                result = scrape_top10(url, section)
-                scraped_data[task_name] = result or []  # Ensure we always have a list
-                if result is None:
-                    logging.warning(f"Failed to scrape {task_name}")
+        # Reuse one browser and persistent profile across ranking and detail pages.
+        with CamoufoxFlixPatrolScraper(self.config) as scraper:
+            for task_name, url, section in scraping_tasks:
+                try:
+                    result = scrape_top10(url, section, scraper)
+                    scraped_data[task_name] = result or []  # Ensure we always have a list
+                    if result is None:
+                        logging.warning(f"Failed to scrape {task_name}")
+                        self._failed_services.add(task_name)
+                    else:
+                        logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
+                except Exception as e:
+                    logging.error(f"Error scraping {task_name}: {e}")
+                    scraped_data[task_name] = []
                     self._failed_services.add(task_name)
-                else:
-                    logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
-            except Exception as e:
-                logging.error(f"Error scraping {task_name}: {e}")
-                scraped_data[task_name] = []
-                self._failed_services.add(task_name)
 
         return scraped_data
 
