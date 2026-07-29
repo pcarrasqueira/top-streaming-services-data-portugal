@@ -21,7 +21,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
-          .venv/bin/camoufox fetch
 
       - name: Run code quality checks
         run: |
@@ -42,5 +41,6 @@ jobs:
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          CAMOUFOX_HEADLESS: "True"
+          BUZZKEE_URL: http://127.0.0.1:8000
+          BUZZKEE_API_KEY: ${{ secrets.BUZZKEE_API_KEY }}
         run: .venv/bin/python top_pt_stream_services.py

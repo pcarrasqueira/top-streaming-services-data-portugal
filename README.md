@@ -92,16 +92,9 @@ CLIENT_SECRET=your_trakt_client_secret
 KIDS_LIST=True          # Include Netflix kids content (default: False)
 PRINT_LISTS=False       # Print scraped lists to console (default: False)
 
-# Camoufox browser used for FlixPatrol scraping
-CAMOUFOX_HEADLESS=False # Set True for headless automation
-CAMOUFOX_USER_DATA_DIR=.camoufox-user-data
-CAMOUFOX_PAGE_WAIT_MS=30000
-```
-
-After installing the dependencies, download the Camoufox browser binary once:
-
-```bash
-camoufox fetch
+# BuzzKee shared FlixPatrol rendering service
+BUZZKEE_URL=http://127.0.0.1:8000
+BUZZKEE_API_KEY=your_buzzkee_api_key
 ```
 
 ### Trakt API Setup

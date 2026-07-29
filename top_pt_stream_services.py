@@ -34,12 +34,11 @@ class Config:
         self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
         self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-        # Camoufox configuration.  A persistent profile retains cookies and browser
-        # state between runs. Run with a visible browser by default so Camoufox
-        # can complete anti-bot challenges; automation may opt into headless mode.
-        self.CAMOUFOX_HEADLESS = os.getenv("CAMOUFOX_HEADLESS", "False").lower() in ("true", "1", "yes")
-        self.CAMOUFOX_USER_DATA_DIR = os.getenv("CAMOUFOX_USER_DATA_DIR", ".camoufox-user-data")
-        self.CAMOUFOX_PAGE_WAIT_MS = int(os.getenv("CAMOUFOX_PAGE_WAIT_MS", "30000"))
+        # BuzzKee configuration. The shared service owns Camoufox and its
+        # persistent browser profile, keeping consumers lightweight.
+        self.BUZZKEE_URL = os.getenv("BUZZKEE_URL", "http://127.0.0.1:8000").rstrip("/")
+        self.BUZZKEE_API_KEY = os.getenv("BUZZKEE_API_KEY")
+        self.BUZZKEE_REQUEST_TIMEOUT = int(os.getenv("BUZZKEE_REQUEST_TIMEOUT", "60"))
 
         # Request configuration
         self.REQUEST_TIMEOUT = 30  # seconds
@@ -579,56 +578,39 @@ def _content_hint_from_section(section_title: str) -> Optional[str]:
 _page_cache: Dict[str, BeautifulSoup] = {}
 
 
-class CamoufoxFlixPatrolScraper:
-    """Fetch FlixPatrol pages through one persistent Camoufox browser session."""
+class BuzzKeeFlixPatrolClient:
+    """Fetch final FlixPatrol HTML from the shared BuzzKee rendering API."""
 
     def __init__(self, config_instance: Config):
         self.config = config_instance
-        self._camoufox_context: Any = None
-        self.browser: Any = None
-
-    def __enter__(self) -> "CamoufoxFlixPatrolScraper":
-        try:
-            from camoufox.sync_api import Camoufox
-        except ImportError as error:
-            raise RuntimeError(
-                "Camoufox is not installed. Run 'pip install -r requirements.txt' followed by 'camoufox fetch'."
-            ) from error
-
-        self._camoufox_context = Camoufox(
-            headless=self.config.CAMOUFOX_HEADLESS,
-            humanize=True,
-            os="windows",
-            persistent_context=True,
-            user_data_dir=self.config.CAMOUFOX_USER_DATA_DIR,
-        )
-        self.browser = self._camoufox_context.__enter__()
-        return self
-
-    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        if self._camoufox_context is not None:
-            self._camoufox_context.__exit__(exc_type, exc_value, traceback)
-        self.browser = None
-        self._camoufox_context = None
 
     def fetch_html(self, url: str, ready_selector: Optional[str] = None) -> str:
-        """Navigate to ``url`` and return HTML after an optional element is rendered."""
-        if self.browser is None:
-            raise RuntimeError("Camoufox browser session has not been started")
+        """Return rendered HTML for ``url`` from BuzzKee.
 
-        page = self.browser.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=self.config.REQUEST_TIMEOUT * 1000)
-            if ready_selector:
-                page.wait_for_selector(ready_selector, state="attached", timeout=self.config.CAMOUFOX_PAGE_WAIT_MS)
-            return page.content()
-        finally:
-            page.close()
+        ``ready_selector`` is accepted for compatibility with the former browser
+        client; readiness is now handled by BuzzKee before it responds.
+        """
+        if not self.config.BUZZKEE_API_KEY:
+            raise RuntimeError("BUZZKEE_API_KEY is not configured")
+
+        response = requests.post(
+            f"{self.config.BUZZKEE_URL}/v1/render",
+            headers={"X-BuzzKee-Key": self.config.BUZZKEE_API_KEY},
+            json={"url": url},
+            timeout=self.config.BUZZKEE_REQUEST_TIMEOUT,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"BuzzKee returned status {response.status_code} for {url}")
+
+        html = response.json().get("html")
+        if not isinstance(html, str) or not html:
+            raise RuntimeError(f"BuzzKee returned no HTML for {url}")
+        return html
 
 
 # Scrape movie or show data based in the section title
 def scrape_top10(
-    url: str, section_title: str, scraper: CamoufoxFlixPatrolScraper
+    url: str, section_title: str, scraper: BuzzKeeFlixPatrolClient
 ) -> Optional[List[Tuple[str, str, str, str, str, str, str, str]]]:
     """Scrape a top-10 section from a FlixPatrol page.
 
@@ -742,7 +724,7 @@ def scrape_top10(
 
 # Scrape the year, starring actor, TMDB id, and IMDb id for a title
 def scrape_details(
-    title_tag_slug: str, title: str, scraper: CamoufoxFlixPatrolScraper, content_hint: Optional[str] = None
+    title_tag_slug: str, title: str, scraper: BuzzKeeFlixPatrolClient, content_hint: Optional[str] = None
 ) -> Tuple[str, str, str, str, str]:
     """Scrape the detail page for a title and enrich with TMDB data.
 
@@ -1605,21 +1587,20 @@ class StreamingServiceTracker:
             ("prime_shows", self.config.urls["prime"], self.config.sections["shows"]),
         ]
 
-        # Reuse one browser and persistent profile across ranking and detail pages.
-        with CamoufoxFlixPatrolScraper(self.config) as scraper:
-            for task_name, url, section in scraping_tasks:
-                try:
-                    result = scrape_top10(url, section, scraper)
-                    scraped_data[task_name] = result or []  # Ensure we always have a list
-                    if result is None:
-                        logging.warning(f"Failed to scrape {task_name}")
-                        self._failed_services.add(task_name)
-                    else:
-                        logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
-                except Exception as e:
-                    logging.error(f"Error scraping {task_name}: {e}")
-                    scraped_data[task_name] = []
+        scraper = BuzzKeeFlixPatrolClient(self.config)
+        for task_name, url, section in scraping_tasks:
+            try:
+                result = scrape_top10(url, section, scraper)
+                scraped_data[task_name] = result or []  # Ensure we always have a list
+                if result is None:
+                    logging.warning(f"Failed to scrape {task_name}")
                     self._failed_services.add(task_name)
+                else:
+                    logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
+            except Exception as e:
+                logging.error(f"Error scraping {task_name}: {e}")
+                scraped_data[task_name] = []
+                self._failed_services.add(task_name)
 
         return scraped_data
 

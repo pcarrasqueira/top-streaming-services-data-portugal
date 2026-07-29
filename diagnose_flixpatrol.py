@@ -9,12 +9,13 @@ Usage:
 This will help identify what changes FlixPatrol made to their website
 and verify that the scraper can handle them correctly.
 """
+
 import logging
 import sys
 
 from bs4 import BeautifulSoup
 
-from top_pt_stream_services import CamoufoxFlixPatrolScraper, Config, scrape_top10
+from top_pt_stream_services import BuzzKeeFlixPatrolClient, Config, scrape_top10
 
 # Configure logging to show detailed information
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -142,14 +143,14 @@ if __name__ == "__main__":
     # Test Netflix Portugal page
     url = "https://flixpatrol.com/top10/netflix/portugal/"
 
-    with CamoufoxFlixPatrolScraper(Config()) as scraper:
-        print("\n\n### Testing Movies Section ###")
-        diagnose_page(url, "TOP 10 Movies", scraper)
-        test_scraper(url, "TOP 10 Movies", scraper)
+    scraper = BuzzKeeFlixPatrolClient(Config())
+    print("\n\n### Testing Movies Section ###")
+    diagnose_page(url, "TOP 10 Movies", scraper)
+    test_scraper(url, "TOP 10 Movies", scraper)
 
-        print("\n\n### Testing TV Shows Section ###")
-        diagnose_page(url, "TOP 10 TV Shows", scraper)
-        test_scraper(url, "TOP 10 TV Shows", scraper)
+    print("\n\n### Testing TV Shows Section ###")
+    diagnose_page(url, "TOP 10 TV Shows", scraper)
+    test_scraper(url, "TOP 10 TV Shows", scraper)
 
     print("\n\n" + "=" * 80)
     print("Diagnostic complete!")
