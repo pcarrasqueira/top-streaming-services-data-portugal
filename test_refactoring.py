@@ -33,6 +33,13 @@ try:
         """Test that main function is callable."""
         assert callable(main)
         print("✓ Main function accessibility test passed")
+
+    def test_run_fails_when_no_lists_are_scraped():
+        """A fully failed scrape must make the workflow fail instead of updating empty lists."""
+        tracker = StreamingServiceTracker()
+        tracker._scrape_all_services = lambda: {"netflix_movies": []}
+        assert tracker.run() == -1
+        print("✓ Empty scrape failure test passed")
     
     def run_tests():
         """Run all tests."""
@@ -40,6 +47,7 @@ try:
         test_config_initialization()
         test_tracker_initialization()
         test_main_function_exists()
+        test_run_fails_when_no_lists_are_scraped()
         print("\n🎉 All tests passed! The refactored code structure is working correctly.")
     
     if __name__ == "__main__":

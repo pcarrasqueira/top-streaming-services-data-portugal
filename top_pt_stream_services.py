@@ -1545,6 +1545,12 @@ class StreamingServiceTracker:
             # Extract Movies and TV Shows
             scraped_data = self._scrape_all_services()
 
+            if not any(scraped_data.values()):
+                logging.error("No streaming lists were scraped; skipping Trakt updates")
+                self._report_execution_summary(scraped_data)
+                self._write_github_summary(scraped_data)
+                return -1
+
             if self.config.PRINT_LISTS:
                 self._print_scraped_data(scraped_data)
 
