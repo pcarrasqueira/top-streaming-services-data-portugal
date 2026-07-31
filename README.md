@@ -1,5 +1,7 @@
 # Top Streaming Services Data Portugal 🇵🇹
 
+> ⚠️ **Important (31 July 2026):** Trakt now requires a VIP account to create new OAuth/API applications. The automated GitHub Actions workflow is currently disabled until a valid Trakt OAuth application and token are available.
+
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/pcarrasqueira/top-streaming-services-data-portugal/cron_job.yml?branch=main)](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/actions)
 [![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 
