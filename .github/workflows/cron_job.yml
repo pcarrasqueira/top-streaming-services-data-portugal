@@ -5,6 +5,10 @@ name: Refresh Trakt Token and Dispatch Scraper
   schedule:
     - cron: '0 0,8,12,17 * * *'
 
+concurrency:
+  group: refresh-trakt-token
+  cancel-in-progress: false
+
 permissions:
   contents: read
   actions: write
@@ -21,7 +25,8 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          response=$(curl -sS --fail --location 'https://api.trakt.tv/oauth/token' \
+          set +e
+          response=$(curl -sS --fail-with-body --location 'https://api.trakt.tv/oauth/token' \
             --header 'Content-Type: application/json' \
             --data '{
                 "refresh_token": "'"$REFRESH_TOKEN"'",
@@ -29,7 +34,23 @@ jobs:
                 "client_secret": "'"$CLIENT_SECRET"'",
                 "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
                 "grant_type": "refresh_token"
-            }')
+            }' \
+            --write-out '\n__HTTP_STATUS__:%{http_code}')
+          curl_exit=$?
+          set -e
+
+          http_status="${response##*$'\n__HTTP_STATUS__:'}"
+          response_body="${response%$'\n__HTTP_STATUS__:'*}"
+
+          if [ "$curl_exit" -ne 0 ]; then
+            error_details=$(printf '%s' "$response_body" | \
+              python3 -c 'import json,sys; data=json.load(sys.stdin); print((data.get("error") or "unknown_error") + ": " + (data.get("error_description") or "no description"))' 2>/dev/null || \
+              echo "unparseable error response")
+            echo "Trakt token refresh failed (HTTP ${http_status:-unknown}): $error_details"
+            exit "$curl_exit"
+          fi
+
+          response="$response_body"
 
           access_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<< "$response")
           refresh_token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["refresh_token"])' <<< "$response")
