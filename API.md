@@ -101,31 +101,25 @@ The scraper supports various HTML structures:
 
 ### Authentication
 
-#### OAuth 2.0 Flow
-The project uses OAuth 2.0 for Trakt API authentication:
+#### Device Code and Refresh Token Flow
+The project uses Trakt's Device Code Flow for its one-time sign-in. Trakt recommends this flow for command-line tools and system services; it does not need a callback URL or Client Secret.
 
-```python
-# Token refresh endpoint
-POST https://api.trakt.tv/oauth/token
+1. Request a device code with `POST https://api.trakt.tv/oauth/device/code` and body `{"client_id": "..."}`.
+2. Show the returned `verification_url` and `user_code` to the user.
+3. Poll `POST https://api.trakt.tv/oauth/device/token` at the returned `interval`, with body `{"code": "device_code_value", "client_id": "..."}`. Stop after `expires_in` or when the user declines.
+4. Store the returned `access_token` and `refresh_token` securely. Access tokens last 7 days.
 
-# Request body
+The scheduled workflow renews the access token with `POST https://api.trakt.tv/oauth/token`:
+
+```json
 {
     "refresh_token": "refresh_token_value",
-    "client_id": "client_id_value", 
-    "client_secret": "client_secret_value",
-    "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+    "client_id": "client_id_value",
     "grant_type": "refresh_token"
 }
-
-# Response
-{
-    "access_token": "new_access_token",
-    "token_type": "Bearer",
-    "expires_in": 7776000,
-    "refresh_token": "new_refresh_token",
-    "scope": "public"
-}
 ```
+
+Successful refreshes rotate the refresh token: Trakt invalidates the submitted token immediately. The workflow therefore writes both returned tokens back to GitHub Actions secrets before dispatching the list scraper. Do not reuse an old refresh token after a successful refresh.
 
 #### Request Headers
 ```python
@@ -414,4 +408,4 @@ if not token_status:
 
 ---
 
-This API documentation provides the foundation for understanding and extending the Top Streaming Services Data Portugal project. For additional details, refer to the [Trakt API documentation](https://trakt.docs.apiary.io/) and examine the source code.
+This API documentation provides the foundation for understanding and extending the Top Streaming Services Data Portugal project. For additional details, refer to the [Trakt API Authentication guide](https://developer.trakt.tv/docs/authentication-oauth) and examine the source code.

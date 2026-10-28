@@ -61,71 +61,34 @@ python -c "import requests, bs4, dotenv; print('All dependencies installed succe
 2. Sign up for a free account
 3. Verify your email address
 
-#### Create Trakt API Application
-1. Navigate to [Trakt API Settings](https://trakt.tv/oauth/applications)
-2. Click "New Application"
-3. Fill in the application details:
-   - **Name**: `Top PT Streaming Services` (or your preferred name)
-   - **Description**: `Automated tracking of top streaming content in Portugal`
-   - **Redirect URI**: `urn:ietf:wg:oauth:2.0:oob`
-   - **Website**: Your GitHub repository URL (optional)
-   - **Permissions**: Check all boxes:
-     - ✅ Read user profile
-     - ✅ Manage user lists
-     - ✅ Add/remove items from lists
-4. Click "Save App"
+#### Create a Trakt API app
+1. Open [Trakt Developer — My Apps](https://developer.trakt.tv/apps) and create an app.
+2. App registration requires a verified GitHub account connected to the developer portal. Trakt's Standard API tier is free; a Trakt VIP subscription is not required.
+3. Copy the **Client ID**. A Client Secret and redirect URI are not required for this project's device-code sign-in.
 
-#### Get Your API Credentials
-After creating the application, you'll see:
-- **Client ID**: Copy this value
-- **Client Secret**: Copy this value (keep it secure!)
+### 4. Connect the Trakt account
 
-### 4. OAuth Token Generation
+The [Authentication guide](https://developer.trakt.tv/docs/authentication-oauth) recommends Device Code Flow for command-line tools and system services. It avoids the HTTPS callback required by the [Authorization Code + PKCE flow](https://developer.trakt.tv/docs/pkce).
 
-#### Manual Token Generation
-1. **Authorization URL**: Construct the following URL (replace `YOUR_CLIENT_ID`):
+1. Create `.env` from `.env.example` if needed, then add the app's Client ID:
+   ```env
+   CLIENT_ID=your_trakt_client_id
    ```
-   https://trakt.tv/oauth/authorize?response_type=code&client_id=YOUR_CLIENT_ID&redirect_uri=urn:ietf:wg:oauth:2.0:oob
-   ```
-
-2. **Authorize Application**:
-   - Open the URL in your browser
-   - Log in to Trakt if prompted
-   - Click "Authorize" to grant permissions
-   - Copy the authorization code from the page
-
-3. **Exchange Code for Tokens**:
+2. Run the authorization helper:
    ```bash
-   curl -X POST https://api.trakt.tv/oauth/token \
-     -H "Content-Type: application/json" \
-     -d '{
-       "code": "YOUR_AUTHORIZATION_CODE",
-       "client_id": "YOUR_CLIENT_ID",
-       "client_secret": "YOUR_CLIENT_SECRET",
-       "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
-       "grant_type": "authorization_code"
-     }'
+   python authorize_trakt.py
    ```
+3. Open the verification URL printed in the terminal, enter the displayed code, and approve the app. The helper waits for approval, saves the Client ID and tokens to `.env` with owner-only file permissions, then checks the new access token. Token values are never printed.
 
-4. **Save the Response**: You'll receive a JSON response containing:
-   - `access_token`: For API requests
-   - `refresh_token`: For token renewal
-   - `expires_in`: Token expiration time
+Access tokens last 7 days. Refresh tokens are single-use: every successful refresh invalidates the previous refresh token and returns a replacement. The GitHub Actions workflow rotates both token secrets before it starts the scraper.
 
 ### 5. Environment Configuration
 
-#### Create Environment File
-```bash
-touch .env
-```
-
-#### Configure Environment Variables
-Edit the `.env` file with your credentials:
+The authorization helper creates or updates `.env` with the Trakt Client ID and tokens. Set optional configuration values in that file as needed:
 
 ```env
 # Trakt API Credentials (Required)
 CLIENT_ID=your_trakt_client_id_here
-CLIENT_SECRET=your_trakt_client_secret_here
 ACCESS_TOKEN=your_trakt_access_token_here
 REFRESH_TOKEN=your_trakt_refresh_token_here
 
@@ -138,7 +101,6 @@ PRINT_LISTS=False       # Set to True to print scraped lists to console
 ```env
 # Example .env file (replace with your actual values)
 CLIENT_ID=abc123def456ghi789
-CLIENT_SECRET=xyz789uvw456rst123
 ACCESS_TOKEN=token_abcdefghijklmnopqrstuvwxyz123456789
 REFRESH_TOKEN=refresh_zyxwvutsrqponmlkjihgfedcba987654321
 
@@ -180,7 +142,6 @@ This will show the scraped content before uploading to Trakt.
 | Secret Name | Value | Description |
 |-------------|-------|-------------|
 | `CLIENT_ID` | Your Trakt client ID | From step 3 |
-| `CLIENT_SECRET` | Your Trakt client secret | From step 3 |
 | `ACCESS_TOKEN` | Your Trakt access token | From step 4 |
 | `REFRESH_TOKEN` | Your Trakt refresh token | From step 4 |
 | `GH_PAT` | GitHub Personal Access Token | For token updates |
@@ -233,7 +194,7 @@ Error: Unauthorized (401)
 ```
 Error: Invalid token
 ```
-**Solution**: Tokens expire. The script auto-refreshes them, but you may need to regenerate manually
+**Solution**: GitHub Actions refreshes the token before each scrape. If the refresh step reports `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local use, rerun the helper to authorize and store a fresh token pair.
 
 ##### Missing Lists
 ```
@@ -267,7 +228,7 @@ python -c "import requests, os; from dotenv import load_dotenv; load_dotenv(); h
 ### Regular Monitoring
 1. **Check Lists**: Periodically verify your Trakt lists are updating
 2. **Monitor Actions**: Check GitHub Actions for any failures
-3. **Update Tokens**: Refresh tokens when they expire
+3. **Update Tokens**: If Trakt rejects a legacy refresh token, reauthorize with `python authorize_trakt.py` and update the three Trakt repository secrets
 
 ### Customization Options
 1. **Schedule Changes**: Modify `.github/workflows/cron_job.yml` for different timing

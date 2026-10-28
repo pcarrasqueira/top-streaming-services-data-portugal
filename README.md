@@ -1,6 +1,6 @@
 # Top Streaming Services Data Portugal 🇵🇹
 
-> ⚠️ **Important (31 July 2026):** Trakt now requires a VIP account to create new OAuth/API applications. The automated GitHub Actions workflow is currently disabled until a valid Trakt OAuth application and token are available.
+> ✅ **Trakt API access is free on the Standard tier.** New API apps require a verified GitHub account connected to the Trakt developer portal. Run `python authorize_trakt.py` once to connect your Trakt account, then add the generated tokens to GitHub Actions secrets to enable scheduled updates.
 
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/pcarrasqueira/top-streaming-services-data-portugal/cron_job.yml?branch=main)](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/actions)
 [![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
@@ -88,7 +88,6 @@ Create a `.env` file in the project root with the following variables:
 CLIENT_ID=your_trakt_client_id
 ACCESS_TOKEN=your_trakt_access_token
 REFRESH_TOKEN=your_trakt_refresh_token
-CLIENT_SECRET=your_trakt_client_secret
 
 # Optional Settings
 KIDS_LIST=True          # Include Netflix kids content (default: False)
@@ -101,32 +100,10 @@ BUZZKEE_API_KEY=your_buzzkee_api_key
 
 ### Trakt API Setup
 
-1. **Create a Trakt Application**
-   - Go to [Trakt API Settings](https://trakt.tv/oauth/applications)
-   - Click "New Application"
-   - Fill in the required information:
-     - Name: Your application name
-     - Redirect URI: `urn:ietf:wg:oauth:2.0:oob`
-     - Permissions: Check all required permissions
-
-2. **Get Your Credentials**
-   - **Client ID**: Found in your application settings
-   - **Client Secret**: Found in your application settings
-   - **Access Token & Refresh Token**: Obtain through OAuth flow (see [Trakt API documentation](https://trakt.docs.apiary.io/#introduction/authentication-oauth))
-
-### GitHub Actions Setup (For Automation)
-
-Add the following secrets to your GitHub repository:
-
-- `CLIENT_ID`: Your Trakt client ID
-- `CLIENT_SECRET`: Your Trakt client secret  
-- `ACCESS_TOKEN`: Your Trakt access token
-- `REFRESH_TOKEN`: Your Trakt refresh token
-- `GH_PAT`: GitHub Personal Access Token (for secret updates)
-
-Add these variables to your repository:
-- `KIDS_LIST`: Set to `true` to include kids content
-- `PRINT_LISTS`: Set to `true` to enable console output
+1. **Create a Trakt API app** at [Trakt Developer — My Apps](https://developer.trakt.tv/apps). Standard API access is free; app registration requires a verified GitHub account connected to the developer portal.
+2. Put the app's **Client ID** in `.env` as `CLIENT_ID=...`.
+3. Run `python authorize_trakt.py`. The helper uses Trakt's device-code flow, asks you to approve the app in a browser, saves the returned tokens securely in `.env`, and validates the access token. No Client Secret or redirect URI is needed.
+4. For GitHub Actions, copy `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` into repository Actions secrets. Also configure `GH_PAT` so scheduled runs can store each rotated refresh token.
 
 ## 🔧 Usage
 
@@ -237,7 +214,7 @@ graph TD
 ```
 Error: Invalid access token
 ```
-**Solution**: Check that your Trakt credentials are correct and the access token hasn't expired. The script should auto-refresh tokens, but manual refresh may be needed.
+**Solution**: GitHub Actions refreshes the token before each scrape. If a refresh fails with `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local runs, the helper renews credentials in `.env` when you authorize again.
 
 #### Missing Content
 ```
@@ -372,7 +349,7 @@ For quick reference:
 
 - **GitHub Issues**: [Create an issue](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/issues)
 - **Discussions**: [Join the discussion](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/discussions)
-- **Trakt API Docs**: [Official Documentation](https://trakt.docs.apiary.io/)
+- **Trakt API Docs**: [Authentication](https://developer.trakt.tv/docs/authentication-oauth) · [PKCE](https://developer.trakt.tv/docs/pkce)
 
 ---
 

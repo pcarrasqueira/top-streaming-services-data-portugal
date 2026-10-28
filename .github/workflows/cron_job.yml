@@ -22,17 +22,20 @@ jobs:
         env:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          test -n "$REFRESH_TOKEN" || (echo "REFRESH_TOKEN is empty" && exit 1)
+          test -n "$CLIENT_ID" || (echo "CLIENT_ID is empty" && exit 1)
+          test -n "$GH_TOKEN" || (echo "GH_PAT is empty" && exit 1)
+
           set +e
           response=$(curl -sS --fail-with-body --location 'https://api.trakt.tv/oauth/token' \
             --header 'Content-Type: application/json' \
+            --header "trakt-api-key: $CLIENT_ID" \
+            --header 'trakt-api-version: 2' \
             --data '{
                 "refresh_token": "'"$REFRESH_TOKEN"'",
                 "client_id": "'"$CLIENT_ID"'",
-                "client_secret": "'"$CLIENT_SECRET"'",
-                "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
                 "grant_type": "refresh_token"
             }' \
             --write-out '\n__HTTP_STATUS__:%{http_code}')

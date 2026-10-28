@@ -28,10 +28,12 @@ jobs:
           .venv/bin/flake8 top_pt_stream_services.py --max-line-length=120
           .venv/bin/bandit -r top_pt_stream_services.py
 
-      - name: Check token env
+      - name: Check Trakt credentials
         env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         run: |
+          test -n "$CLIENT_ID" && echo "CLIENT_ID is set" || (echo "CLIENT_ID is empty" && exit 1)
           test -n "$ACCESS_TOKEN" && echo "ACCESS_TOKEN is set" || (echo "ACCESS_TOKEN is empty" && exit 1)
 
       - name: Run Python Script

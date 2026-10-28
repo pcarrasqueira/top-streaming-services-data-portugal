@@ -6,6 +6,7 @@ Single source of truth for agents working in `top-stream-services-data-portugal`
 
 - **Python 3.12/3.13 only** with virtualenv/pyenv
 - **Core script**: `top_pt_stream_services.py` (single-file architecture)
+- **Trakt authorization helper**: `authorize_trakt.py` (device-code flow)
 - **Tests**: `test_refactoring.py` (pytest-compatible smoke tests)
 - **Diagnostic helper**: `diagnose_flixpatrol.py`
 - **No Cursor/Copilot rules**: `.cursor/rules/`, `.cursorrules`, `.github/copilot-instructions.md` are absent
@@ -21,7 +22,7 @@ pre-commit install                        # Enable hooks
 ```
 
 **Required env vars** (copy `.env.example` → `.env`, never commit):
-`CLIENT_ID`, `CLIENT_SECRET`, `ACCESS_TOKEN`, `REFRESH_TOKEN`
+`CLIENT_ID`, `ACCESS_TOKEN`, `REFRESH_TOKEN` (no Client Secret; authenticate with `python authorize_trakt.py`)
 
 **Optional**: `KIDS_LIST`, `PRINT_LISTS`, `TMDB_API_KEY`
 
@@ -30,6 +31,7 @@ pre-commit install                        # Enable hooks
 | Task | Command |
 |------|---------|
 | Run main script | `python top_pt_stream_services.py` |
+| Authorize Trakt | `python authorize_trakt.py` |
 | Syntax check | `python -m py_compile top_pt_stream_services.py` |
 | Run all tests | `python test_refactoring.py` |
 | Run tests (pytest) | `python -m pytest test_refactoring.py -v` |
