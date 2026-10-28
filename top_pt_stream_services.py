@@ -1205,33 +1205,39 @@ def check_lists() -> bool:
     lists = get_lists()
     lists_slugs = [list["ids"]["slug"] for list in lists]
     logging.debug(f"Lists slugs: {lists_slugs}")
-    error_create = False
-
-    if trakt_netflix_movies_list_slug not in lists_slugs:
-        error_create = create_list(trakt_netflix_movies_list_data)
-    if trakt_netflix_shows_list_slug not in lists_slugs:
-        error_create = create_list(trakt_netflix_shows_list_data)
+    required_lists = [
+        (trakt_netflix_movies_list_slug, trakt_netflix_movies_list_data),
+        (trakt_netflix_shows_list_slug, trakt_netflix_shows_list_data),
+    ]
     if KIDS_LIST:
-        if trakt_netflix_kids_movies_list_slug not in lists_slugs:
-            error_create = create_list(trakt_netflix_kids_movies_list_data)
-        if trakt_netflix_kids_shows_list_slug not in lists_slugs:
-            error_create = create_list(trakt_netflix_kids_shows_list_data)
-    if trakt_hbo_movies_list_slug not in lists_slugs:
-        error_create = create_list(trakt_hbo_movies_list_data)
-    if trakt_hbo_shows_list_slug not in lists_slugs:
-        error_create = create_list(trakt_hbo_shows_list_data)
-    if trakt_disney_list_slug not in lists_slugs:
-        error_create = create_list(trakt_disney_top_list_data)
-    if trakt_apple_movies_list_slug not in lists_slugs:
-        error_create = create_list(trakt_apple_movies_list_data)
-    if trakt_apple_shows_list_slug not in lists_slugs:
-        error_create = create_list(trakt_apple_shows_list_data)
-    if trakt_prime_movies_list_slug not in lists_slugs:
-        error_create = create_list(trakt_prime_movies_list_data)
-    if trakt_prime_shows_list_slug not in lists_slugs:
-        error_create = create_list(trakt_prime_shows_list_data)
+        required_lists.extend(
+            [
+                (trakt_netflix_kids_movies_list_slug, trakt_netflix_kids_movies_list_data),
+                (trakt_netflix_kids_shows_list_slug, trakt_netflix_kids_shows_list_data),
+            ]
+        )
+    required_lists.extend(
+        [
+            (trakt_hbo_movies_list_slug, trakt_hbo_movies_list_data),
+            (trakt_hbo_shows_list_slug, trakt_hbo_shows_list_data),
+            (trakt_disney_list_slug, trakt_disney_top_list_data),
+            (trakt_apple_movies_list_slug, trakt_apple_movies_list_data),
+            (trakt_apple_shows_list_slug, trakt_apple_shows_list_data),
+            (trakt_prime_movies_list_slug, trakt_prime_movies_list_data),
+            (trakt_prime_shows_list_slug, trakt_prime_shows_list_data),
+        ]
+    )
+
+    error_create = False
+    for list_slug, list_data in required_lists:
+        if list_slug in lists_slugs:
+            continue
+        if create_list(list_data) is None:
+            logging.error("Failed to create list '%s'", list_data["name"])
+            error_create = True
+
     logging.debug("Lists checked!")
-    return bool(error_create)
+    return error_create
 
 
 # Search movies or shows by title and type
