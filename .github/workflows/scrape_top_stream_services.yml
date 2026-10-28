@@ -1,4 +1,4 @@
-name: Scrape Top Stream Services
+name: Sync Trakt Lists from PeakPlay
 
 "on":
   workflow_dispatch:
@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 jobs:
-  scrape:
-    runs-on: self-hosted
+  sync:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
@@ -36,13 +36,22 @@ jobs:
           test -n "$CLIENT_ID" && echo "CLIENT_ID is set" || (echo "CLIENT_ID is empty" && exit 1)
           test -n "$ACCESS_TOKEN" && echo "ACCESS_TOKEN is set" || (echo "ACCESS_TOKEN is empty" && exit 1)
 
-      - name: Run Python Script
+      - name: Check Supabase credentials
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_API_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || secrets.SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" && echo "SUPABASE_URL is set" || (echo "SUPABASE_URL is empty" && exit 1)
+          test -n "$SUPABASE_API_KEY" && echo "Supabase API key is set" || (echo "Supabase API key is empty" && exit 1)
+
+      - name: Load PeakPlay Rankings and Sync Trakt Lists
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          BUZZKEE_URL: http://127.0.0.1:8000
-          BUZZKEE_API_KEY: ${{ secrets.BUZZKEE_API_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_COUNTRY_CODE: ${{ vars.SUPABASE_COUNTRY_CODE }}
         run: .venv/bin/python top_pt_stream_services.py

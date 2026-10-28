@@ -33,9 +33,12 @@ class Config:
         self.KIDS_LIST = os.getenv("KIDS_LIST", "False").lower() in ("true", "True")
         self.PRINT_LISTS = os.getenv("PRINT_LISTS", "False").lower() in ("true", "True")
         self.TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+        self.SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+        self.SUPABASE_API_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+        self.SUPABASE_COUNTRY_CODE = os.getenv("SUPABASE_COUNTRY_CODE", "PT").strip().upper() or "PT"
 
-        # BuzzKee configuration. The shared service owns Camoufox and its
-        # persistent browser profile, keeping consumers lightweight.
+        # Legacy BuzzKee settings are used only by the standalone FlixPatrol diagnostic helper.
+        # The scheduled Trakt sync reads rankings from Supabase.
         self.BUZZKEE_URL = os.getenv("BUZZKEE_URL", "http://127.0.0.1:8000").rstrip("/")
         self.BUZZKEE_API_KEY = os.getenv("BUZZKEE_API_KEY")
         self.BUZZKEE_REQUEST_TIMEOUT = int(os.getenv("BUZZKEE_REQUEST_TIMEOUT", "60"))
@@ -579,7 +582,7 @@ _page_cache: Dict[str, BeautifulSoup] = {}
 
 
 class BuzzKeeFlixPatrolClient:
-    """Fetch final FlixPatrol HTML from the shared BuzzKee rendering API."""
+    """Legacy FlixPatrol diagnostic client; the scheduled sync does not instantiate it."""
 
     def __init__(self, config_instance: Config):
         self.config = config_instance
@@ -612,7 +615,7 @@ class BuzzKeeFlixPatrolClient:
 def scrape_top10(
     url: str, section_title: str, scraper: BuzzKeeFlixPatrolClient
 ) -> Optional[List[Tuple[str, str, str, str, str, str, str, str]]]:
-    """Scrape a top-10 section from a FlixPatrol page.
+    """Parse a top-10 section from a FlixPatrol page for legacy diagnostics.
 
     Uses a per-run page cache so the same URL is fetched at most once
     (important for Netflix which has 4 sections on a single page).
@@ -1249,16 +1252,13 @@ def search_title_by_type(title_info: Tuple[str, str], media_type: str) -> List[i
             logging.debug("Comparing " + title + " with: " + result[media_type]["title"].lower())
             normalized_slug = result[media_type]["ids"]["slug"].replace("-", "")
             normalized_title_tag = title_tag.replace("-", "")
-            if (
-                result["type"] == media_type
-                and result[media_type]["title"].lower() == title.lower()
-                and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
-                or (
-                    normalized_title_tag in normalized_slug
-                    or normalized_title_tag.startswith(normalized_slug)
-                    or normalized_slug.startswith(normalized_title_tag)
-                )
-            ):
+            title_matches = result[media_type]["title"].lower() == title.lower()
+            slug_matches = bool(normalized_title_tag) and (
+                normalized_title_tag in normalized_slug
+                or normalized_title_tag.startswith(normalized_slug)
+                or normalized_slug.startswith(normalized_title_tag)
+            )
+            if result["type"] == media_type and (title_matches or slug_matches):
                 trakt_id = result[media_type]["ids"]["trakt"]
                 trakt_ids.append(trakt_id)
                 logging.debug(f"Added trakt id: {trakt_id} with slug {normalized_slug} for title: {title}")
@@ -1302,11 +1302,11 @@ def search_title(title_info: Tuple[str, str, str]) -> List[Tuple[str, int, str]]
                 + " and slug "
                 + normalized_slug
             )
-            if (
-                result[media_type]["title"].lower() == title.lower()
-                and (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
-                or (normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug))
-            ):
+            title_matches = result[media_type]["title"].lower() == title.lower()
+            slug_matches = bool(normalized_title_tag) and (
+                normalized_title_tag in normalized_slug or normalized_title_tag.startswith(normalized_slug)
+            )
+            if title_matches or slug_matches:
                 trakt_id = result[media_type]["ids"]["trakt"]
                 trakt_info.append((media_type, trakt_id, rank))
                 logging.debug(f"Added trakt id: {trakt_id} with slug {normalized_slug} for title: {title}")
@@ -1509,7 +1509,6 @@ class StreamingServiceTracker:
 
         # Performance optimization: cache for repeated calls
         self._headers_cache = None
-        self._failed_services = set()  # Track failed services to avoid retrying
 
     def _init_list_data(self) -> None:
         """Initialize Trakt list data configurations."""
@@ -1542,30 +1541,37 @@ class StreamingServiceTracker:
         try:
             logging.info("Starting streaming service data update...")
 
-            # Extract Movies and TV Shows
-            scraped_data = self._scrape_all_services()
-
-            if not any(scraped_data.values()):
-                logging.error("No streaming lists were scraped; skipping Trakt updates")
-                self._report_execution_summary(scraped_data)
-                self._write_github_summary(scraped_data)
+            # Load the rankings already collected by PeakPlay.
+            supabase_data = self._load_lists_from_supabase()
+            incomplete_lists = [
+                list_name
+                for list_name in self._required_list_names()
+                if sorted(int(item[0]) for item in supabase_data.get(list_name, [])) != list(range(1, 11))
+            ]
+            if incomplete_lists:
+                logging.error(
+                    "Supabase is missing complete top-10 data for: %s; skipping all Trakt updates",
+                    ", ".join(incomplete_lists),
+                )
+                self._report_execution_summary(supabase_data)
+                self._write_github_summary(supabase_data)
                 return -1
 
             if self.config.PRINT_LISTS:
-                self._print_scraped_data(scraped_data)
+                self._print_loaded_data(supabase_data)
 
-            # Check Trakt token and lists
+            # Check Trakt token and lists only after the source data is complete.
             if not self._validate_trakt_setup():
                 return -1
 
-            # Update all lists
-            self._update_all_lists(scraped_data)
+            # Resolve every item before modifying any Trakt list.
+            self._update_all_lists(supabase_data)
 
             # Report execution summary
-            self._report_execution_summary(scraped_data)
+            self._report_execution_summary(supabase_data)
 
             # Write GitHub Actions job summary (no-op outside GHA)
-            self._write_github_summary(scraped_data)
+            self._write_github_summary(supabase_data)
 
             logging.info("Finished updating lists")
             return 0
@@ -1574,44 +1580,133 @@ class StreamingServiceTracker:
             logging.error(f"Error in main execution: {e}")
             return -1
 
-    def _scrape_all_services(self) -> Dict[str, Any]:
-        """Scrape data from all streaming services with improved error handling."""
-        scraped_data = {}
-
-        # Define scraping tasks
-        scraping_tasks = [
-            ("netflix_movies", self.config.urls["netflix"], self.config.sections["movies"]),
-            ("netflix_shows", self.config.urls["netflix"], self.config.sections["shows"]),
-            ("netflix_kids_movies", self.config.urls["netflix_kids"], self.config.sections["kids_movies"]),
-            ("netflix_kids_shows", self.config.urls["netflix_kids"], self.config.sections["kids_shows"]),
-            ("hbo_movies", self.config.urls["hbo"], self.config.sections["movies"]),
-            ("hbo_shows", self.config.urls["hbo"], self.config.sections["shows"]),
-            ("disney_overall", self.config.urls["disney"], self.config.sections["overall"]),
-            ("apple_movies", self.config.urls["apple"], self.config.sections["movies"]),
-            ("apple_shows", self.config.urls["apple"], self.config.sections["shows"]),
-            ("prime_movies", self.config.urls["prime"], self.config.sections["movies"]),
-            ("prime_shows", self.config.urls["prime"], self.config.sections["shows"]),
+    def _required_list_names(self) -> List[str]:
+        """Return the Supabase ranking lists required for this run."""
+        list_names = [
+            "netflix_movies",
+            "netflix_shows",
+            "hbo_movies",
+            "hbo_shows",
+            "disney_overall",
+            "apple_movies",
+            "apple_shows",
+            "prime_movies",
+            "prime_shows",
         ]
+        if self.config.KIDS_LIST:
+            list_names.extend(["netflix_kids_movies", "netflix_kids_shows"])
+        return list_names
 
-        scraper = BuzzKeeFlixPatrolClient(self.config)
-        for task_name, url, section in scraping_tasks:
+    def _load_lists_from_supabase(self) -> Dict[str, Any]:
+        """Load ranked entries from PeakPlay's public Supabase table."""
+        list_names = [
+            "netflix_movies",
+            "netflix_shows",
+            "netflix_kids_movies",
+            "netflix_kids_shows",
+            "hbo_movies",
+            "hbo_shows",
+            "disney_overall",
+            "apple_movies",
+            "apple_shows",
+            "prime_movies",
+            "prime_shows",
+        ]
+        lists: Dict[str, Any] = {list_name: [] for list_name in list_names}
+
+        if not self.config.SUPABASE_URL or not self.config.SUPABASE_API_KEY:
+            logging.error("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or legacy SUPABASE_ANON_KEY) must be configured")
+            return lists
+
+        list_mapping = {
+            ("netflix", "movie", "general"): "netflix_movies",
+            ("netflix", "series", "general"): "netflix_shows",
+            ("netflix", "movie", "kids"): "netflix_kids_movies",
+            ("netflix", "series", "kids"): "netflix_kids_shows",
+            ("hbo", "movie", "general"): "hbo_movies",
+            ("hbo", "series", "general"): "hbo_shows",
+            ("apple", "movie", "general"): "apple_movies",
+            ("apple", "series", "general"): "apple_shows",
+            ("prime", "movie", "general"): "prime_movies",
+            ("prime", "series", "general"): "prime_shows",
+        }
+        url = f"{self.config.SUPABASE_URL}/rest/v1/top10_entries"
+        headers = {
+            "apikey": self.config.SUPABASE_API_KEY,
+            "Accept": "application/json",
+        }
+        params = {
+            "select": "service,type,category,rank,title,tmdb_id,imdb_id,year",
+            "country_code": f"eq.{self.config.SUPABASE_COUNTRY_CODE}",
+            "order": "service.asc,category.asc,type.asc,rank.asc",
+            "limit": "1000",
+        }
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=self.config.REQUEST_TIMEOUT)
+            response.raise_for_status()
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise ValueError("Supabase returned a response that is not a list of rows")
+        except (requests.RequestException, ValueError) as error:
+            logging.error("Could not load rankings from Supabase: %s", error)
+            return lists
+
+        for row in rows:
+            if not isinstance(row, dict):
+                logging.warning("Skipping malformed Supabase row")
+                continue
+
+            service = str(row.get("service", "")).strip().lower()
+            content_type = str(row.get("type", "")).strip().lower()
+            category = str(row.get("category", "general")).strip().lower()
+            if service == "disney" and category == "general" and content_type in ("movie", "series"):
+                list_name = "disney_overall"
+            else:
+                list_name = list_mapping.get((service, content_type, category))
+            if list_name is None:
+                continue
+
             try:
-                result = scrape_top10(url, section, scraper)
-                scraped_data[task_name] = result or []  # Ensure we always have a list
-                if result is None:
-                    logging.warning(f"Failed to scrape {task_name}")
-                    self._failed_services.add(task_name)
-                else:
-                    logging.debug(f"Successfully scraped {task_name}: {len(result)} items")
-            except Exception as e:
-                logging.error(f"Error scraping {task_name}: {e}")
-                scraped_data[task_name] = []
-                self._failed_services.add(task_name)
+                rank = int(row["rank"])
+                title = str(row["title"]).strip()
+            except (KeyError, TypeError, ValueError):
+                logging.warning("Skipping malformed Supabase entry for %s", list_name)
+                continue
 
-        return scraped_data
+            if rank < 1 or rank > 10 or not title:
+                logging.warning("Skipping invalid Supabase entry for %s at rank %s", list_name, rank)
+                continue
 
-    def _print_scraped_data(self, data: Dict[str, Any]) -> None:
-        """Print all scraped data for debugging."""
+            tmdb_id = row.get("tmdb_id")
+            imdb_id = row.get("imdb_id") or ""
+            year = row.get("year")
+            media_type = "movie" if content_type == "movie" else "tv"
+            lists[list_name].append(
+                (
+                    str(rank),
+                    title,
+                    "",
+                    str(year) if year is not None else "",
+                    "",
+                    str(tmdb_id) if tmdb_id is not None else "Unknown",
+                    str(imdb_id),
+                    media_type,
+                )
+            )
+
+        for list_name, entries in lists.items():
+            entries.sort(key=lambda item: int(item[0]))
+            ranks = [int(item[0]) for item in entries]
+            if list_name in self._required_list_names() and ranks != list(range(1, 11)):
+                logging.error("Supabase list %s has ranks %s; expected ranks 1 through 10", list_name, ranks)
+            elif entries:
+                logging.info("Loaded %d ranked entries for %s from Supabase", len(entries), list_name)
+
+        return lists
+
+    def _print_loaded_data(self, data: Dict[str, Any]) -> None:
+        """Print loaded rankings for debugging."""
         print_top_list("TOP Netflix Movies", data["netflix_movies"])
         print_top_list("TOP Netflix Shows", data["netflix_shows"])
         print_top_list("TOP Netflix Kids Movies", data["netflix_kids_movies"])
@@ -1640,80 +1735,71 @@ class StreamingServiceTracker:
         return True
 
     def _update_all_lists(self, data: Dict[str, Any]) -> None:
-        """Update all Trakt lists with scraped data."""
-        # List of streaming services and corresponding data
+        """Resolve all rankings, then update Trakt lists in rank order."""
+        updates: List[Tuple[str, List[Tuple[str, int]]]] = []
         streaming_services = [
-            (
-                "netflix",
-                data["netflix_movies"],
-                data["netflix_shows"],
-                trakt_netflix_movies_list_slug,
-                trakt_netflix_shows_list_slug,
-            ),
-            ("hbo", data["hbo_movies"], data["hbo_shows"], trakt_hbo_movies_list_slug, trakt_hbo_shows_list_slug),
-            (
-                "apple",
-                data["apple_movies"],
-                data["apple_shows"],
-                trakt_apple_movies_list_slug,
-                trakt_apple_shows_list_slug,
-            ),
-            (
-                "prime",
-                data["prime_movies"],
-                data["prime_shows"],
-                trakt_prime_movies_list_slug,
-                trakt_prime_shows_list_slug,
-            ),
+            ("netflix_movies", trakt_netflix_movies_list_slug, "movie"),
+            ("netflix_shows", trakt_netflix_shows_list_slug, "show"),
+            ("hbo_movies", trakt_hbo_movies_list_slug, "movie"),
+            ("hbo_shows", trakt_hbo_shows_list_slug, "show"),
+            ("apple_movies", trakt_apple_movies_list_slug, "movie"),
+            ("apple_shows", trakt_apple_shows_list_slug, "show"),
+            ("prime_movies", trakt_prime_movies_list_slug, "movie"),
+            ("prime_shows", trakt_prime_shows_list_slug, "show"),
         ]
 
-        # Create and update lists for each streaming service
-        for service, movies, shows, movies_slug, shows_slug in streaming_services:
-            movies_update = create_type_trakt_list_payload(movies, "movie")
-            shows_update = create_type_trakt_list_payload(shows, "show")
-
-            update_list_ordered(movies_slug, movies_update)
-            update_list_ordered(shows_slug, shows_update)
-
-        # Handle Disney+ list as Disney stopped showing top movies and shows separately
-        disney_update = create_mixed_trakt_list_payload(data["disney_overall"])
-        update_list_ordered(trakt_disney_list_slug, disney_update)
-
-        # Handle kids' lists
-        if self.config.KIDS_LIST:
-            kids_streaming_services = [
-                (
-                    "netflix",
-                    data["netflix_kids_movies"],
-                    data["netflix_kids_shows"],
-                    trakt_netflix_kids_movies_list_slug,
-                    trakt_netflix_kids_shows_list_slug,
+        for data_key, list_slug, media_type in streaming_services:
+            items = create_type_trakt_list_payload(data[data_key], media_type)
+            if len(items) != len(data[data_key]):
+                raise RuntimeError(
+                    f"Resolved {len(items)} of {len(data[data_key])} entries for {data_key}; "
+                    "no Trakt lists were updated"
                 )
-            ]
+            updates.append((list_slug, items))
 
-            for service, movies, shows, movies_slug, shows_slug in kids_streaming_services:
-                movies_update = create_type_trakt_list_payload(movies, "movie")
-                shows_update = create_type_trakt_list_payload(shows, "show")
+        disney_items = create_mixed_trakt_list_payload(data["disney_overall"])
+        if len(disney_items) != len(data["disney_overall"]):
+            raise RuntimeError(
+                "Could not resolve every Disney+ entry; no Trakt lists were updated"
+            )
+        updates.append((trakt_disney_list_slug, disney_items))
 
-                update_list_ordered(movies_slug, movies_update)
-                update_list_ordered(shows_slug, shows_update)
+        if self.config.KIDS_LIST:
+            for data_key, list_slug, media_type in [
+                ("netflix_kids_movies", trakt_netflix_kids_movies_list_slug, "movie"),
+                ("netflix_kids_shows", trakt_netflix_kids_shows_list_slug, "show"),
+            ]:
+                items = create_type_trakt_list_payload(data[data_key], media_type)
+                if len(items) != len(data[data_key]):
+                    raise RuntimeError(
+                        f"Resolved {len(items)} of {len(data[data_key])} entries for {data_key}; "
+                        "no Trakt lists were updated"
+                    )
+                updates.append((list_slug, items))
+
+        for list_slug, items in updates:
+            update_list_ordered(list_slug, items)
 
     def _report_execution_summary(self, data: Dict[str, Any]) -> None:
         """Report summary of execution including successes and failures."""
-        total_services = len(data)
-        successful_services = sum(1 for v in data.values() if v and len(v) > 0)
-        failed_services = len(self._failed_services)
+        required_lists = self._required_list_names()
+        successful_lists = [
+            list_name
+            for list_name in required_lists
+            if sorted(int(item[0]) for item in data.get(list_name, [])) == list(range(1, 11))
+        ]
+        failed_lists = [list_name for list_name in required_lists if list_name not in successful_lists]
 
         logging.info("Execution Summary:")
-        logging.info(f"  Total services: {total_services}")
-        logging.info(f"  Successful: {successful_services}")
-        logging.info(f"  Failed: {failed_services}")
+        logging.info("  Required lists: %d", len(required_lists))
+        logging.info("  Complete: %d", len(successful_lists))
+        logging.info("  Incomplete: %d", len(failed_lists))
 
-        if self._failed_services:
-            logging.warning(f"  Failed services: {', '.join(self._failed_services)}")
+        if failed_lists:
+            logging.warning("  Incomplete lists: %s", ", ".join(failed_lists))
 
-        success_rate = (successful_services / total_services) * 100 if total_services > 0 else 0
-        logging.info(f"  Success rate: {success_rate:.1f}%")
+        success_rate = (len(successful_lists) / len(required_lists)) * 100 if required_lists else 0
+        logging.info("  Success rate: %.1f%%", success_rate)
 
     def _write_github_summary(self, data: Dict[str, Any]) -> None:
         """Write a rich Markdown summary to GitHub Actions Job Summary ($GITHUB_STEP_SUMMARY).
@@ -1763,12 +1849,16 @@ class StreamingServiceTracker:
         lines.append(f"> Updated: **{now}**\n")
 
         # Execution stats
-        total = len(data)
-        ok = sum(1 for v in data.values() if v and len(v) > 0)
-        fail = len(self._failed_services)
-        lines.append(f"**{ok}** / **{total}** lists scraped successfully")
-        if fail:
-            lines.append(f"  |  **{fail}** failed: {', '.join(sorted(self._failed_services))}")
+        required_lists = self._required_list_names()
+        complete_lists = [
+            list_name
+            for list_name in required_lists
+            if sorted(int(item[0]) for item in data.get(list_name, [])) == list(range(1, 11))
+        ]
+        incomplete_lists = [list_name for list_name in required_lists if list_name not in complete_lists]
+        lines.append(f"**{len(complete_lists)}** / **{len(required_lists)}** required lists loaded from Supabase")
+        if incomplete_lists:
+            lines.append(f"  |  **{len(incomplete_lists)}** incomplete: {', '.join(incomplete_lists)}")
         lines.append("")
 
         trakt_base = "https://trakt.tv/users/me/lists"
@@ -1779,7 +1869,7 @@ class StreamingServiceTracker:
             lines.append(f"### :{icon}: [{display_name}]({trakt_url})")
 
             if not items:
-                lines.append("_No data scraped_\n")
+                lines.append("_No ranking data in Supabase_\n")
                 continue
 
             lines.append("")

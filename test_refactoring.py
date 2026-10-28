@@ -35,11 +35,11 @@ try:
         print("✓ Main function accessibility test passed")
 
     def test_run_fails_when_no_lists_are_scraped():
-        """A fully failed scrape must make the workflow fail instead of updating empty lists."""
+        """Missing Supabase data must stop the workflow before it updates empty lists."""
         tracker = StreamingServiceTracker()
-        tracker._scrape_all_services = lambda: {"netflix_movies": []}
+        tracker._load_lists_from_supabase = lambda: {"netflix_movies": []}
         assert tracker.run() == -1
-        print("✓ Empty scrape failure test passed")
+        print("✓ Missing Supabase data failure test passed")
     
     def run_tests():
         """Run all tests."""

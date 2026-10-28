@@ -1,101 +1,33 @@
 # API Documentation
 
-This document provides comprehensive information about the APIs used by the Top Streaming Services Data Portugal project, including data structures, endpoints, and integration details.
+This document describes the APIs used by the active Trakt synchronization workflow.
 
 ## 📡 Overview
 
-The project integrates with two main APIs:
-- **FlixPatrol**: Web scraping for streaming platform rankings (no official API)
-- **Trakt.tv**: RESTful API for list management and content identification
+The workflow reads ranking data from PeakPlay's Supabase project and uses Trakt for content matching and list management. PeakPlay separately collects FlixPatrol rankings and stores them in Supabase; this repository does not fetch FlixPatrol pages during a sync.
 
-## 🎬 FlixPatrol Integration
+## 🗄️ PeakPlay Supabase
 
-### Data Source URLs
+The sync reads the public `top10_entries` table through Supabase's REST endpoint:
 
-The project scrapes data from the following FlixPatrol endpoints:
-
-#### Netflix
-- **Current Rankings**: `https://flixpatrol.com/top10/netflix/portugal/`
-- **Kids Content**: `https://flixpatrol.com/top10/netflix/portugal/{yesterday_date}/`
-  - Uses yesterday's date in `YYYY-MM-DD` format
-  - Kids content is only available on historical pages
-
-#### HBO Max
-- **Current Rankings**: `https://flixpatrol.com/top10/hbo/portugal/`
-
-#### Disney+
-- **Current Rankings**: `https://flixpatrol.com/top10/disney/portugal/`
-- Note: Disney+ only provides overall rankings (mixed movies and shows)
-
-#### Apple TV+
-- **Current Rankings**: `https://flixpatrol.com/top10/apple-tv/portugal/`
-
-#### Amazon Prime Video
-- **Current Rankings**: `https://flixpatrol.com/top10/amazon-prime/portugal/`
-
-### Scraping Implementation
-
-#### Request Headers
-```python
-headers = {
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Cookie": "_nss=1"
-}
+```text
+GET {SUPABASE_URL}/rest/v1/top10_entries
 ```
 
-#### Section Parsing
-The scraper looks for specific section titles:
-- `"TOP 10 Movies"`
-- `"TOP 10 TV Shows"`
-- `"TOP 10 Kids Movies"`
-- `"TOP 10 Kids TV Shows"`
-- `"TOP 10 Overall"` (Disney+ only)
+The request uses a read-only Supabase publishable key in the `apikey` header. For older projects, the legacy `anon` key is also supported. It selects `service`, `type`, `category`, `rank`, `title`, `tmdb_id`, `imdb_id`, and `year`, filtered by `SUPABASE_COUNTRY_CODE` (defaults to `PT`). The database's anonymous SELECT policy allows this read without a service-role key.
 
-**Robustness Features:**
-- Tries multiple heading tags (`h2`, `h3`, `h4`) to find section headers
-- Supports case-insensitive matching for section titles
-- Falls back to first `<td>` if specific classes not found
-- Comprehensive error handling and logging for each parsing step
+Rows are mapped as follows:
 
-#### Data Structure
-```python
-# Scraped data format
-[
-    (rank, title, title_tag),
-    ("1", "Movie Title", "movie-title-slug"),
-    ("2", "Another Movie", "another-movie-slug"),
-    # ... up to 10 items
-]
-```
+| Supabase fields | Trakt list |
+| --- | --- |
+| `netflix`, `movie`, `general` | Netflix Movies |
+| `netflix`, `series`, `general` | Netflix Shows |
+| `netflix`, `movie`, `kids` | Netflix Kids Movies (optional) |
+| `netflix`, `series`, `kids` | Netflix Kids Shows (optional) |
+| `hbo` / `apple` / `prime`, movie or series, `general` | Corresponding service and type list |
+| `disney`, movie or series, `general` | Disney+ mixed list, ordered by rank |
 
-#### HTML Structure
-The scraper supports various HTML structures:
-```html
-<!-- Example 1: With h3 heading -->
-<h3>TOP 10 Movies</h3>
-<div class="card">
-    <tbody>
-        <tr>
-            <td class="table-td w-12 font-semibold text-right text-gray-500 table-hover:text-gray-400">1</td>
-            <td><a href="/title/movie-slug">Movie Title</a></td>
-        </tr>
-    </tbody>
-</div>
-
-<!-- Example 2: With h2 heading and table wrapper -->
-<h2>TOP 10 Movies</h2>
-<div class="card">
-    <table>
-        <tbody>
-            <tr>
-                <td class="rank-cell">1</td>
-                <td><a href="/title/movie-slug">Movie Title</a></td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-```
+Every required list must contain exactly ranks 1 through 10. A missing or partial list stops the run before any Trakt list is changed. The workflow also resolves all entries to Trakt IDs before it starts writing lists, so unmatched entries do not produce partial lists.
 
 ## 🎯 Trakt.tv API Integration
 
@@ -119,7 +51,7 @@ The scheduled workflow renews the access token with `POST https://api.trakt.tv/o
 }
 ```
 
-Successful refreshes rotate the refresh token: Trakt invalidates the submitted token immediately. The workflow therefore writes both returned tokens back to GitHub Actions secrets before dispatching the list scraper. Do not reuse an old refresh token after a successful refresh.
+Successful refreshes rotate the refresh token: Trakt invalidates the submitted token immediately. The workflow therefore writes both returned tokens back to GitHub Actions secrets before dispatching the Trakt sync. Do not reuse an old refresh token after a successful refresh.
 
 #### Request Headers
 ```python
@@ -241,40 +173,33 @@ def api_call():
 ### 1. Content Discovery
 ```mermaid
 graph TD
-    A[Scrape FlixPatrol] --> B[Extract Title + Year]
-    B --> C[Search Trakt API]
-    C --> D[Get Trakt ID]
-    D --> E[Store for List Update]
+    A[PeakPlay stores rankings in Supabase] --> B[Read top10_entries for PT]
+    B --> C[Validate ranks and list completeness]
+    C --> D[Resolve entries to Trakt IDs]
+    D --> E[Prepare ordered list updates]
 ```
 
 ### 2. List Synchronization
 ```mermaid
 graph TD
-    A[Check List Exists] --> B{List Found?}
-    B -->|No| C[Create List]
-    B -->|Yes| D[Clear Existing Items]
+    A[Check Trakt account and lists] --> B{Lists ready?}
+    B -->|No| C[Create missing lists]
+    B -->|Yes| D[Clear existing items]
     C --> D
-    D --> E[Add New Items]
-    E --> F[Update Complete]
+    D --> E[Add items in rank order]
+    E --> F[Update complete]
 ```
 
 ### Data Transformation
 
-#### FlixPatrol → Trakt Mapping
+#### Supabase → Trakt Mapping
 ```python
-# Input from FlixPatrol
-flixpatrol_item = ("1", "Inception", "inception-2010")
+# Supabase row
+{"service": "netflix", "type": "movie", "category": "general",
+ "rank": 1, "title": "Inception", "tmdb_id": 27205}
 
-# Search Trakt
-search_result = search_trakt_api("Inception", 2010)
-
-# Extract Trakt ID  
-trakt_id = search_result[0]["movie"]["ids"]["trakt"]
-
-# Create payload
-payload = {
-    "movies": [{"ids": {"trakt": trakt_id}}]
-}
+# Trakt list item after content matching
+{"movies": [{"ids": {"trakt": 16662}}]}
 ```
 
 ## 🛠️ Implementation Details

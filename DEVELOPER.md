@@ -30,7 +30,7 @@ urls = config.urls['netflix']
 - **Location**: `StreamingServiceTracker` class in `top_pt_stream_services.py`
 - **Key Methods**:
   - `run()`: Main execution method
-  - `_scrape_all_services()`: Scrapes data from all platforms
+  - `_load_lists_from_supabase()`: Loads PeakPlay rankings from Supabase
   - `_validate_trakt_setup()`: Validates authentication and lists
   - `_update_all_lists()`: Updates all Trakt lists
 
@@ -40,7 +40,7 @@ result = tracker.run()  # Returns 0 on success, -1 on error
 ```
 
 #### 3. Helper Functions
-- **Web Scraping**: `scrape_top10()` - Extracts top content from FlixPatrol
+- **Legacy Scraping Utilities**: `scrape_top10()` - Historical FlixPatrol parser, not used by the active sync
 - **API Communication**: `get_headers()`, `check_token()`, `update_list()`
 - **Data Processing**: `create_type_trakt_list_payload()`, `search_title()`
 - **Utilities**: `print_top_list()`, `retry_request` decorator
@@ -66,7 +66,7 @@ pre-commit install
 ```
 
 ### Environment Setup
-Copy `.env.example` to `.env` and fill in your Trakt API credentials:
+Copy `.env.example` to `.env` and fill in Trakt credentials and read-only Supabase configuration:
 
 ```bash
 cp .env.example .env
@@ -105,7 +105,7 @@ To add tests for new functionality:
 - **Classes**: PascalCase (e.g., `StreamingServiceTracker`)
 - **Functions**: snake_case (e.g., `scrape_top10`)
 - **Constants**: UPPER_SNAKE_CASE (e.g., `REQUEST_TIMEOUT`)
-- **Private Methods**: Leading underscore (e.g., `_scrape_all_services`)
+- **Private Methods**: Leading underscore (e.g., `_load_lists_from_supabase`)
 
 ### Code Quality
 All code must pass:
@@ -132,7 +132,7 @@ CLIENT_ID = "your-key-here"         # ❌ Bad
 ```
 
 ### Error Handling
-All external API calls and web scraping should include proper error handling:
+All external API calls should include proper error handling:
 
 ```python
 try:
@@ -166,8 +166,8 @@ To add support for a new streaming service:
 
 3. **Update Scraping Logic**:
    ```python
-   # In _scrape_all_services()
-   'new_service_movies': scrape_top10(self.config.urls['new_service'], self.config.sections['movies'])
+   # In _load_lists_from_supabase(), map the new service/type/category tuple
+   # to the corresponding Trakt list key.
    ```
 
 4. **Update List Management**:
@@ -208,13 +208,13 @@ The refactoring maintains 100% backward compatibility:
 Set environment variables to control output:
 
 ```bash
-PRINT_LISTS=True  # Enable debug output for scraped data
+PRINT_LISTS=True  # Enable debug output for loaded rankings
 ```
 
 ### Common Issues
 
 1. **Authentication Errors**: Check Trakt API credentials in `.env`
-2. **Network Timeouts**: May indicate FlixPatrol structure changes
+2. **Network Timeouts**: May indicate Supabase or Trakt API connectivity issues
 3. **Missing Content**: Usually means content couldn't be matched on Trakt
 
 ### Debug Mode

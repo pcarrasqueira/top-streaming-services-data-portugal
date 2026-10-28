@@ -22,9 +22,9 @@ pre-commit install                        # Enable hooks
 ```
 
 **Required env vars** (copy `.env.example` → `.env`, never commit):
-`CLIENT_ID`, `ACCESS_TOKEN`, `REFRESH_TOKEN` (no Client Secret; authenticate with `python authorize_trakt.py`)
+`CLIENT_ID`, `ACCESS_TOKEN`, `REFRESH_TOKEN`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (legacy projects may set `SUPABASE_ANON_KEY`; no Trakt Client Secret; authenticate with `python authorize_trakt.py`)
 
-**Optional**: `KIDS_LIST`, `PRINT_LISTS`, `TMDB_API_KEY`
+**Optional**: `SUPABASE_COUNTRY_CODE` (defaults to `PT`), `KIDS_LIST`, `PRINT_LISTS`
 
 ## 3. COMMANDS
 
@@ -92,7 +92,7 @@ except requests.exceptions.RequestException as e:
 - Constants: `REQUEST_TIMEOUT=30`, `MAX_RETRIES=10`, `BACKOFF_FACTOR=2`
 
 ### Data Structures
-- Scraped data: 7-tuples `(rank, title, slug, year, starring, tmdb_id, imdb_id)`
+- Loaded rows: 8-tuples `(rank, title, slug, year, starring, tmdb_id, imdb_id, media_type)`
 - Use payload helpers: `create_type_trakt_list_payload`, `create_mixed_trakt_list_payload`
 - Validate API responses before processing
 
@@ -106,7 +106,7 @@ except requests.exceptions.RequestException as e:
 ### Adding New Services
 1. Add URL to `Config.urls`
 2. Create list data dict + slug constant
-3. Update `_scrape_all_services()` and `_update_all_lists()`
+3. Add the Supabase row mapping and update `_required_list_names()` / `_update_all_lists()`
 4. Add tests and update docs
 
 ### Backward Compatibility

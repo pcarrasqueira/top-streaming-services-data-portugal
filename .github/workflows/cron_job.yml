@@ -1,4 +1,4 @@
-name: Refresh Trakt Token and Dispatch Scraper
+name: Refresh Trakt Token and Dispatch Sync
 
 "on":
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
           gh secret set ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" -b"$access_token"
           gh secret set REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" -b"$refresh_token"
 
-      - name: Dispatch scraper workflow
+      - name: Dispatch Trakt sync workflow
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |

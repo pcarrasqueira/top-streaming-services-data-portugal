@@ -5,23 +5,23 @@
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/pcarrasqueira/top-streaming-services-data-portugal/cron_job.yml?branch=main)](https://github.com/pcarrasqueira/top-streaming-services-data-portugal/actions)
 [![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 
-A comprehensive Python automation tool that tracks the most popular content across major streaming platforms in Portugal. This project scrapes real-time data from [FlixPatrol](https://flixpatrol.com/) and automatically syncs curated top 10 lists to [Trakt.tv](https://trakt.tv/), providing an always up-to-date view of trending movies and TV shows.
+A Python automation tool that reads the latest Portugal rankings collected by PeakPlay in Supabase and syncs the top 10 lists to [Trakt.tv](https://trakt.tv/). PeakPlay owns the FlixPatrol collection pipeline; this project reads its stored rankings and handles Trakt matching and list updates.
 
 ## 🎯 Overview
 
 Stay connected with Portugal's streaming trends! This automation tool:
 
-- 📊 **Tracks Multiple Platforms**: Netflix, HBO Max, Disney+, Apple TV+, and Amazon Prime Video
+- 📊 **Reads PeakPlay Rankings**: Netflix, HBO Max, Disney+, Apple TV+, and Amazon Prime Video from Supabase
 - 🔄 **Auto-Sync to Trakt**: Creates and maintains public Trakt lists with trending content
-- ⏰ **Real-Time Updates**: Runs 4 times daily via GitHub Actions (00:00, 08:00, 12:00, 17:00 UTC)
+- ⏰ **Automated Updates**: Syncs the latest Supabase rankings to Trakt via GitHub Actions
 - 🎬 **Comprehensive Coverage**: Movies, TV shows, and optional kids content
 - 🔒 **Secure**: Uses OAuth token refresh for reliable Trakt API access
 
 ## ✨ Features
 
 ### Core Functionality
-- **Multi-Platform Scraping**: Automatically extracts top 10 content from major streaming services
-- **Intelligent Content Matching**: Uses Trakt's search API to accurately identify movies and shows
+- **Supabase Data Source**: Reads ranked entries already collected by PeakPlay
+- **Intelligent Content Matching**: Uses stored TMDB IDs and Trakt search to identify movies and shows
 - **Dynamic List Management**: Creates, updates, and maintains Trakt lists with proper rankings
 - **Error Handling**: Robust retry mechanisms and comprehensive logging
 - **Token Management**: Automatic OAuth token refresh for uninterrupted operation
@@ -89,13 +89,14 @@ CLIENT_ID=your_trakt_client_id
 ACCESS_TOKEN=your_trakt_access_token
 REFRESH_TOKEN=your_trakt_refresh_token
 
+# PeakPlay Supabase (read-only)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+SUPABASE_COUNTRY_CODE=PT
+
 # Optional Settings
 KIDS_LIST=True          # Include Netflix kids content (default: False)
-PRINT_LISTS=False       # Print scraped lists to console (default: False)
-
-# BuzzKee shared FlixPatrol rendering service
-BUZZKEE_URL=http://127.0.0.1:8000
-BUZZKEE_API_KEY=your_buzzkee_api_key
+PRINT_LISTS=False       # Print loaded rankings to console (default: False)
 ```
 
 ### Trakt API Setup
@@ -124,56 +125,52 @@ PRINT_LISTS=True python top_pt_stream_services.py
 
 ### Automated Execution
 
-The script runs automatically via GitHub Actions on the following schedule:
-- **00:00 UTC** (1:00 AM Portugal Time)
-- **08:00 UTC** (9:00 AM Portugal Time)  
-- **12:00 UTC** (1:00 PM Portugal Time)
-- **17:00 UTC** (6:00 PM Portugal Time)
+The token workflow runs on its configured schedule, then dispatches the Trakt sync workflow. The sync reads the latest entries from PeakPlay's Supabase `top10_entries` table; PeakPlay updates that table independently.
 
 You can also trigger manual runs:
 1. Go to the "Actions" tab in your GitHub repository
-2. Select "Get Top PT Stream Services" workflow
+2. Select "Sync Trakt Lists from PeakPlay" workflow
 3. Click "Run workflow"
 
 ## 📋 Requirements
 
 ### Python Dependencies
-- `requests` - HTTP requests to APIs and web scraping
-- `beautifulsoup4` - HTML parsing and content extraction
+- `requests` - HTTP requests to Supabase and Trakt APIs
+- `beautifulsoup4` - Required only by the retained legacy FlixPatrol diagnostic utilities
 - `python-dotenv` - Environment variable management
 
 ### System Requirements  
 - Python 3.13+ (recommended) or 3.x compatible
-- Internet connection for API access and web scraping
+- Internet connection for Supabase and Trakt API access
 - GitHub account (for automated execution)
 
 ## 🛠️ How It Works
 
 ### Architecture Overview
 
-The project has been refactored into a clean, maintainable architecture while preserving complete backward compatibility:
+The project uses a focused sync pipeline that reads PeakPlay rankings and writes matched entries to Trakt:
 
 #### Core Components
-- **`Config` Class**: Centralized configuration management for URLs, timeouts, and environment variables
+- **`Config` Class**: Centralized configuration for Supabase, Trakt, timeouts, and environment variables
 - **`StreamingServiceTracker` Class**: Main business logic encapsulation with error handling and reporting
-- **Helper Functions**: Modular functions for web scraping, API communication, and data processing
+- **Helper Functions**: Supabase loading, Trakt matching, ordered list updates, and reporting
 
-#### Execution Flow
+#### Runtime Steps
 1. **Configuration Loading**: Environment variables and settings initialization
-2. **Data Collection**: Parallel scraping from all streaming platforms with error handling
+2. **Data Loading**: Read Portugal rankings from PeakPlay Supabase and validate all required top-10 lists
 3. **Content Identification**: Intelligent matching with Trakt.tv database using search API
 4. **Authentication**: Automatic token validation and refresh
 5. **List Management**: Create, update, and maintain Trakt lists with proper error recovery
 6. **Reporting**: Execution summary with success/failure metrics
 
-### Legacy Workflow Steps
+### Execution Flow
 
 ```mermaid
 graph TD
     A[Start] --> B[Load Environment Variables]
     B --> C[Refresh Trakt Tokens]
-    C --> D[Scrape FlixPatrol Data]
-    D --> E[Search Trakt for Content IDs]
+    C --> D[Read PeakPlay Supabase Rankings]
+    D --> E[Resolve Trakt Content IDs]
     E --> F[Create/Update Trakt Lists]
     F --> G[Generate Execution Report]
     G --> H[End]
@@ -181,8 +178,9 @@ graph TD
 
 ## 📊 Data Sources
 
-- **FlixPatrol**: Real-time streaming platform rankings
-- **Trakt.tv**: Content database and list management
+- **PeakPlay Supabase**: Stored streaming rankings and TMDB/IMDb identifiers
+- **Trakt.tv**: Content matching and list management
+- **FlixPatrol**: Upstream ranking source collected by PeakPlay; this project does not scrape it
 - **GitHub Actions**: Automation and scheduling platform
 
 ## 🔒 Security & Quality
@@ -214,13 +212,13 @@ graph TD
 ```
 Error: Invalid access token
 ```
-**Solution**: GitHub Actions refreshes the token before each scrape. If a refresh fails with `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local runs, the helper renews credentials in `.env` when you authorize again.
+**Solution**: GitHub Actions refreshes the token before each Trakt sync. If a refresh fails with `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local runs, the helper renews credentials in `.env` when you authorize again.
 
 #### Missing Content
 ```
 Warning: Payload is empty. No items to add on list
 ```
-**Solution**: This usually means FlixPatrol structure has changed or the content couldn't be matched on Trakt. Check the logs for specific scraping errors.
+**Solution**: Check the logs for incomplete Supabase rankings or entries that could not be matched on Trakt.
 
 #### Rate Limiting
 ```
@@ -286,16 +284,9 @@ We welcome contributions! Here's how you can help:
 
 **For comprehensive API documentation, see [API.md](API.md)**
 
-### FlixPatrol Endpoints
+### Supabase Data Endpoint
 
-The script scrapes data from these FlixPatrol URLs:
-
-- **Netflix**: `https://flixpatrol.com/top10/netflix/portugal/`
-- **Netflix Kids**: `https://flixpatrol.com/top10/netflix/portugal/{yesterday_date}/`
-- **HBO**: `https://flixpatrol.com/top10/hbo/portugal/`
-- **Disney+**: `https://flixpatrol.com/top10/disney/portugal/`
-- **Apple TV**: `https://flixpatrol.com/top10/apple-tv/portugal/`
-- **Prime Video**: `https://flixpatrol.com/top10/amazon-prime/portugal/`
+The sync reads `top10_entries` from PeakPlay's Supabase project, filtered by country and ordered by service, category, type, and rank. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and optionally `SUPABASE_COUNTRY_CODE`.
 
 ### Trakt API Endpoints
 
@@ -306,11 +297,11 @@ The script scrapes data from these FlixPatrol URLs:
 
 ### Data Structures
 
-#### Scraped Content Format
+#### Loaded Content Format
 ```python
 [
-    (rank, title, title_tag),  # e.g., ("1", "Movie Title", "movie-title-slug")
-    ...
+    ("1", "Movie Title", "", "2024", "", "12345", "tt1234567", "movie"),
+    # rank, title, slug, year, starring, tmdb_id, imdb_id, media_type
 ]
 ```
 
@@ -333,7 +324,7 @@ The script scrapes data from these FlixPatrol URLs:
 This project includes comprehensive documentation to help you get started and contribute effectively:
 
 - **[🚀 Setup Guide](SETUP.md)** - Complete step-by-step installation and configuration instructions
-- **[📡 API Documentation](API.md)** - Detailed information about FlixPatrol integration and Trakt.tv API usage
+- **[📡 API Documentation](API.md)** - Supabase and Trakt API usage
 - **[🤝 Contributing Guidelines](CONTRIBUTING.md)** - How to contribute to the project, coding standards, and development workflow
 - **[👨‍💻 Developer Guide](DEVELOPER.md)** - Architecture overview, development setup, and coding guidelines
 - **[📋 Changelog](CHANGELOG.md)** - Project version history, new features, and changes

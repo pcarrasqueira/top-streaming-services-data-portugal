@@ -9,7 +9,7 @@ This comprehensive guide will walk you through setting up the Top Streaming Serv
 - **Git** for version control
 - **GitHub Account** for automated execution
 - **Trakt.tv Account** for list management
-- **Internet Connection** for API access and web scraping
+- **Internet Connection** for Supabase and Trakt API access
 
 ### Knowledge Requirements
 - Basic command line usage
@@ -80,7 +80,7 @@ The [Authentication guide](https://developer.trakt.tv/docs/authentication-oauth)
    ```
 3. Open the verification URL printed in the terminal, enter the displayed code, and approve the app. The helper waits for approval, saves the Client ID and tokens to `.env` with owner-only file permissions, then checks the new access token. Token values are never printed.
 
-Access tokens last 7 days. Refresh tokens are single-use: every successful refresh invalidates the previous refresh token and returns a replacement. The GitHub Actions workflow rotates both token secrets before it starts the scraper.
+Access tokens last 7 days. Refresh tokens are single-use: every successful refresh invalidates the previous refresh token and returns a replacement. The GitHub Actions workflow rotates both token secrets before it starts the Trakt sync.
 
 ### 5. Environment Configuration
 
@@ -92,9 +92,14 @@ CLIENT_ID=your_trakt_client_id_here
 ACCESS_TOKEN=your_trakt_access_token_here
 REFRESH_TOKEN=your_trakt_refresh_token_here
 
+# PeakPlay Supabase (read-only)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+SUPABASE_COUNTRY_CODE=PT
+
 # Optional Configuration
 KIDS_LIST=False         # Set to True to include Netflix kids content
-PRINT_LISTS=False       # Set to True to print scraped lists to console
+PRINT_LISTS=False       # Set to True to print rankings to console
 ```
 
 #### Environment File Example
@@ -103,6 +108,11 @@ PRINT_LISTS=False       # Set to True to print scraped lists to console
 CLIENT_ID=abc123def456ghi789
 ACCESS_TOKEN=token_abcdefghijklmnopqrstuvwxyz123456789
 REFRESH_TOKEN=refresh_zyxwvutsrqponmlkjihgfedcba987654321
+
+# Supabase read access for PeakPlay's top10_entries table
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+SUPABASE_COUNTRY_CODE=PT
 
 # Optional settings
 KIDS_LIST=True
@@ -130,7 +140,7 @@ python top_pt_stream_services.py
 PRINT_LISTS=True python top_pt_stream_services.py
 ```
 
-This will show the scraped content before uploading to Trakt.
+This will show the rankings loaded from Supabase before they are uploaded to Trakt.
 
 ### 7. GitHub Actions Setup (Automation)
 
@@ -145,6 +155,7 @@ This will show the scraped content before uploading to Trakt.
 | `ACCESS_TOKEN` | Your Trakt access token | From step 4 |
 | `REFRESH_TOKEN` | Your Trakt refresh token | From step 4 |
 | `GH_PAT` | GitHub Personal Access Token | For token updates |
+| `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key | Read-only access to PeakPlay rankings |
 
 #### GitHub Personal Access Token (GH_PAT)
 1. Go to [GitHub Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens)
@@ -162,12 +173,14 @@ This will show the scraped content before uploading to Trakt.
 
 | Variable Name | Value | Description |
 |---------------|-------|-------------|
+| `SUPABASE_URL` | `https://<project>.supabase.co` | PeakPlay Supabase project URL |
+| `SUPABASE_COUNTRY_CODE` | `PT` | Country code to load (defaults to `PT`) |
 | `KIDS_LIST` | `true` or `false` | Include kids content |
 | `PRINT_LISTS` | `true` or `false` | Enable debug output |
 
 #### Test GitHub Actions
 1. Go to **Actions** tab in your repository
-2. Click on "Get Top PT Stream Services" workflow
+2. Click on "Sync Trakt Lists from PeakPlay" workflow
 3. Click "Run workflow" to test manual execution
 4. Monitor the workflow execution for any errors
 
@@ -194,13 +207,13 @@ Error: Unauthorized (401)
 ```
 Error: Invalid token
 ```
-**Solution**: GitHub Actions refreshes the token before each scrape. If the refresh step reports `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local use, rerun the helper to authorize and store a fresh token pair.
+**Solution**: GitHub Actions refreshes the token before each Trakt sync. If the refresh step reports `invalid_grant`, run `python authorize_trakt.py` again and replace the `CLIENT_ID`, `ACCESS_TOKEN`, and `REFRESH_TOKEN` repository secrets. For local use, rerun the helper to authorize and store a fresh token pair.
 
 ##### Missing Lists
 ```
 Warning: Payload is empty
 ```
-**Solution**: Check if FlixPatrol is accessible and the scraping is working correctly
+**Solution**: Check that PeakPlay has complete rankings in Supabase and that `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are configured
 
 ##### GitHub Actions Failing
 ```
@@ -217,7 +230,7 @@ Error in workflow execution
 python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('CLIENT_ID found:', bool(os.getenv('CLIENT_ID')))"
 
 # Test API connectivity
-python -c "import requests; print('FlixPatrol accessible:', requests.get('https://flixpatrol.com/top10/netflix/portugal/').status_code == 200)"
+python -c "import os, requests; from dotenv import load_dotenv; load_dotenv(); key=os.getenv('SUPABASE_PUBLISHABLE_KEY'); r=requests.get(os.getenv('SUPABASE_URL') + '/rest/v1/top10_entries?select=rank&country_code=eq.PT&limit=1', headers={'apikey': key}); print('Supabase accessible:', r.status_code == 200)"
 
 # Test Trakt API
 python -c "import requests, os; from dotenv import load_dotenv; load_dotenv(); headers={'Authorization': f'Bearer {os.getenv(\"ACCESS_TOKEN\")}', 'trakt-api-version': '2', 'trakt-api-key': os.getenv('CLIENT_ID')}; print('Trakt API status:', requests.get('https://api.trakt.tv/users/me', headers=headers).status_code)"
@@ -237,7 +250,7 @@ python -c "import requests, os; from dotenv import load_dotenv; load_dotenv(); h
 
 ### Maintenance
 1. **Dependencies**: Keep Python packages updated
-2. **API Changes**: Watch for changes in Trakt or FlixPatrol APIs
+2. **API Changes**: Watch for changes in Trakt or Supabase APIs
 3. **GitHub Actions**: Update action versions when needed
 
 ## 📞 Support
