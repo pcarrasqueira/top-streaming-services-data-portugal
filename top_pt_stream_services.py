@@ -1759,9 +1759,7 @@ class StreamingServiceTracker:
 
         disney_items = create_mixed_trakt_list_payload(data["disney_overall"])
         if len(disney_items) != len(data["disney_overall"]):
-            raise RuntimeError(
-                "Could not resolve every Disney+ entry; no Trakt lists were updated"
-            )
+            raise RuntimeError("Could not resolve every Disney+ entry; no Trakt lists were updated")
         updates.append((trakt_disney_list_slug, disney_items))
 
         if self.config.KIDS_LIST:
