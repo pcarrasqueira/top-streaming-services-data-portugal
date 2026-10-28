@@ -155,6 +155,7 @@ This will show the rankings loaded from Supabase before they are uploaded to Tra
 | `ACCESS_TOKEN` | Your Trakt access token | From step 4 |
 | `REFRESH_TOKEN` | Your Trakt refresh token | From step 4 |
 | `GH_PAT` | GitHub Personal Access Token | For token updates |
+| `SUPABASE_URL` | PeakPlay Supabase project URL | Connect to the project REST API |
 | `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key | Read-only access to PeakPlay rankings |
 
 #### GitHub Personal Access Token (GH_PAT)
@@ -173,7 +174,6 @@ This will show the rankings loaded from Supabase before they are uploaded to Tra
 
 | Variable Name | Value | Description |
 |---------------|-------|-------------|
-| `SUPABASE_URL` | `https://<project>.supabase.co` | PeakPlay Supabase project URL |
 | `SUPABASE_COUNTRY_CODE` | `PT` | Country code to load (defaults to `PT`) |
 | `KIDS_LIST` | `true` or `false` | Include kids content |
 | `PRINT_LISTS` | `true` or `false` | Enable debug output |

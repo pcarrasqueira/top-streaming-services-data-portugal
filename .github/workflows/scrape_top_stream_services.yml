@@ -38,11 +38,11 @@ jobs:
 
       - name: Check Supabase credentials
         env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_API_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || secrets.SUPABASE_ANON_KEY }}
         run: |
-          test -n "$SUPABASE_URL" && echo "SUPABASE_URL is set" || (echo "SUPABASE_URL is empty" && exit 1)
-          test -n "$SUPABASE_API_KEY" && echo "Supabase API key is set" || (echo "Supabase API key is empty" && exit 1)
+          test -n "$SUPABASE_URL" && echo "SUPABASE_URL secret is present" || (echo "SUPABASE_URL secret is empty" && exit 1)
+          test -n "$SUPABASE_API_KEY" && echo "Supabase API key secret is present" || (echo "Supabase API key secret is empty" && exit 1)
 
       - name: Load PeakPlay Rankings and Sync Trakt Lists
         env:
@@ -50,7 +50,7 @@ jobs:
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
           KIDS_LIST: ${{ vars.KIDS_LIST }}
           PRINT_LISTS: ${{ vars.PRINT_LISTS }}
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_COUNTRY_CODE: ${{ vars.SUPABASE_COUNTRY_CODE }}
